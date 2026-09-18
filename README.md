@@ -95,16 +95,21 @@ aapt2 dump permissions app/build/outputs/apk/release/app-release.apk
 
 推送到 `main` 即触发 `.github/workflows/build.yml`：
 
-1. 还原二进制 → 装 JDK 17 / Gradle / Android SDK 35
+1. 还原 `.b64` 二进制
+2. 装 JDK 17、Gradle，并定位 runner 预装的 Android SDK + 补装所需组件
    （构建命令优先用仓库里的 `./gradlew`，把 Gradle 锁在 8.8；万一 wrapper jar 没还原成功，
    会自动退回 runner 上 setup-gradle 提供的 `gradle`，不让整条流水线因为一个文件挂掉）
-2. 跑单元测试
-3. 编译 debug 与 release 两个 APK
-4. 计算 SHA-256，并审计 APK 是否混入网络/存储权限（有则失败）
-5. 上传构建产物（artifact），同时发布一个 GitHub Release 附带两个 APK
-6. 把本次构建的校验值写回仓库根目录的 `build-report.json`
+3. 跑 35 个单元测试
+4. 编译 debug 与 release 两个 APK
+5. 计算 SHA-256，并审计 APK 是否混入网络/存储权限（有则**构建失败**）
+6. 把构建报告打进日志，随 artifact 与 Release 一起上传
 
-工作流用 `paths-ignore: build-report.json` 避免第 6 步的提交再次触发构建。
+`runs-on` 钉在 `ubuntu-24.04`：`ubuntu-latest` 会随镜像大版本迁移，
+迁移当天构建可能莫名其妙挂掉，不值得为省几个字符冒这个险。
+
+**刻意不把构建报告提交回仓库**：那会让 `main` 每次构建都自己往前跑一格，
+任何本地克隆都会莫名落后一个提交、下次 push 被拒。
+报告放在 Actions 日志、artifact 和 Release 里，需要时随时可查。
 
 ### 关于 `scripts/push_to_github.py`
 

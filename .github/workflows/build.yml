@@ -1,13 +1,13 @@
 name: Build APK
 
 # 源码推上来即自动编译；也可以在 Actions 页面手动触发。
-# paths-ignore 很关键：构建结束后机器人会把 build-report.json 提交回仓库，
-# 不排除它就会形成「提交 -> 触发构建 -> 再提交」的无限循环。
+#
+# 刻意不做「构建结束后把报告提交回仓库」：那会让 main 每次构建都自己往前跑一格，
+# 任何本地克隆都会莫名其妙落后一个提交、下次 push 被拒。
+# 构建报告改为打进 Actions 日志 + 随 artifact 一起上传，Release 里另有 SHA256SUMS.txt。
 on:
   push:
     branches: [main, master]
-    paths-ignore:
-      - 'build-report.json'
   workflow_dispatch:
 
 # 发布 Release 与回写构建报告都需要写权限
@@ -136,7 +136,7 @@ jobs:
           RELEASE_SHA=$(awk '/release/{print $1}' out/SHA256SUMS.txt)
           DEBUG_SIZE=$(stat -c%s out/JianJi-1.0.0-debug.apk)
           RELEASE_SIZE=$(stat -c%s out/JianJi-1.0.0-release.apk)
-          cat > build-report.json <<JSON
+          cat > out/build-report.json <<JSON
           {
             "app": "简记",
             "versionName": "1.0.0",
@@ -151,7 +151,7 @@ jobs:
             "networkPermissions": []
           }
           JSON
-          cat build-report.json
+          cat out/build-report.json
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v6
@@ -174,25 +174,14 @@ jobs:
               out/JianJi-1.0.0-debug.apk \
               out/JianJi-1.0.0-release.apk \
               out/SHA256SUMS.txt \
+              out/build-report.json \
               --clobber
           else
             gh release create "$TAG" \
               out/JianJi-1.0.0-debug.apk \
               out/JianJi-1.0.0-release.apk \
               out/SHA256SUMS.txt \
+              out/build-report.json \
               --title "简记 1.0.0 · build ${{ github.run_number }}" \
               --notes "$NOTES"
           fi
-
-      - name: Commit build report back to the repository
-        run: |
-          set -euo pipefail
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add build-report.json
-          if git diff --cached --quiet; then
-            echo "构建报告与上次一致，无需提交"
-            exit 0
-          fi
-          git commit -m "ci: build report for run ${{ github.run_number }}"
-          git push
