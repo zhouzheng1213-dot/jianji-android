@@ -43,14 +43,29 @@ jobs:
       - name: Install required SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
+      # 优先用 wrapper（锁定 Gradle 8.8，与本地验证过的版本一致）；
+      # 万一 wrapper jar 没还原成功，退回 setup-gradle 提供的 gradle，避免整条流水线挂掉。
+      - name: Resolve Gradle command
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew 2>/dev/null || true
+          if [ -x ./gradlew ]; then
+            echo "GRADLE_CMD=./gradlew" >> "$GITHUB_ENV"
+          else
+            echo "GRADLE_CMD=gradle"   >> "$GITHUB_ENV"
+          fi
+
+      - name: Show Gradle version
+        run: $GRADLE_CMD --version
+
       - name: Run unit tests
-        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+        run: $GRADLE_CMD :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: $GRADLE_CMD :app:assembleDebug --no-daemon --stacktrace
 
       - name: Build release APK
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        run: $GRADLE_CMD :app:assembleRelease --no-daemon --stacktrace
 
       - name: Collect APKs and compute SHA-256
         id: collect
