@@ -20,28 +20,62 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # 不用 ubuntu-latest：它在 2026-10-19 起会迁到 Ubuntu 26，
+    # 钉住 24.04 免得某天一次镜像迁移把构建搞挂。
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Restore binary files from base64
         run: bash scripts/bootstrap-binaries.sh
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # 不要用 android-actions/setup-android：
+      # GitHub 托管的 runner 镜像里本来就装好了 Android SDK
+      # （ANDROID_HOME=/usr/local/lib/android/sdk），那个 action 纯粹是多余的，
+      # 而它最新只到 v4、我们原先写的 v3 被强制跑在 Node 24 上会直接失败。
+      - name: Locate Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK" ]; then
+            echo "::error::runner 上没有预装的 Android SDK（找的是 $SDK）"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK"     >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+          SDKMGR="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMGR" ]; then
+            SDKMGR="$(find "$SDK/cmdline-tools" -maxdepth 4 -type f -name sdkmanager 2>/dev/null | head -1)"
+          fi
+          if [ -z "$SDKMGR" ]; then
+            echo "::error::找不到 sdkmanager"
+            exit 1
+          fi
+          echo "SDKMGR=$SDKMGR" >> "$GITHUB_ENV"
+
+          echo "SDK        = $SDK"
+          echo "sdkmanager = $SDKMGR"
 
       - name: Install required SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+        run: |
+          set -euo pipefail
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          echo "--- platforms ---"
+          ls "$ANDROID_HOME/platforms"  || true
+          echo "--- build-tools ---"
+          ls "$ANDROID_HOME/build-tools" || true
 
       # 优先用 wrapper（锁定 Gradle 8.8，与本地验证过的版本一致）；
       # 万一 wrapper jar 没还原成功，退回 setup-gradle 提供的 gradle，避免整条流水线挂掉。
@@ -110,7 +144,7 @@ jobs:
             "runId": "${{ github.run_id }}",
             "commit": "${{ github.sha }}",
             "builtAt": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-            "builtOn": "GitHub Actions / ubuntu-latest",
+            "builtOn": "GitHub Actions / ubuntu-24.04",
             "releaseTag": "build-${{ github.run_number }}",
             "debug": { "file": "JianJi-1.0.0-debug.apk", "sha256": "$DEBUG_SHA", "bytes": $DEBUG_SIZE },
             "release": { "file": "JianJi-1.0.0-release.apk", "sha256": "$RELEASE_SHA", "bytes": $RELEASE_SIZE },
@@ -120,7 +154,7 @@ jobs:
           cat build-report.json
 
       - name: Upload APK artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: JianJi-APK-${{ github.run_number }}
           path: out/*
@@ -131,14 +165,24 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          TAG="build-${{ github.run_number }}"
           NOTES=$(printf '简记 1.0.0 · 由 GitHub Actions 编译产出\n\n构建于 %s\n\n### SHA-256\n```\n%s\n```\n' \
             "$(date -u '+%Y-%m-%d %H:%M UTC')" "${{ steps.collect.outputs.checksums }}")
-          gh release create "build-${{ github.run_number }}" \
-            out/JianJi-1.0.0-debug.apk \
-            out/JianJi-1.0.0-release.apk \
-            out/SHA256SUMS.txt \
-            --title "简记 1.0.0 · build ${{ github.run_number }}" \
-            --notes "$NOTES"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # 同一个 run 重跑时 tag 已经存在，改成覆盖上传，别让整个 job 折在这一步
+            gh release upload "$TAG" \
+              out/JianJi-1.0.0-debug.apk \
+              out/JianJi-1.0.0-release.apk \
+              out/SHA256SUMS.txt \
+              --clobber
+          else
+            gh release create "$TAG" \
+              out/JianJi-1.0.0-debug.apk \
+              out/JianJi-1.0.0-release.apk \
+              out/SHA256SUMS.txt \
+              --title "简记 1.0.0 · build ${{ github.run_number }}" \
+              --notes "$NOTES"
+          fi
 
       - name: Commit build report back to the repository
         run: |
@@ -146,5 +190,9 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add build-report.json
+          if git diff --cached --quiet; then
+            echo "构建报告与上次一致，无需提交"
+            exit 0
+          fi
           git commit -m "ci: build report for run ${{ github.run_number }}"
           git push
