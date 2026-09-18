@@ -28,10 +28,15 @@ val GlassBottomBarHeight = 60.dp
 /**
  * 简记的玻璃表面。所有玻璃视觉都收敛到这一个入口，保证「厚薄」只有一种解释。
  *
- * 三种走向由运行时决定，调用方不需要关心：
- *  1. 有背板且能力足够 → 真实采样背景（模糊 / 折射）；
- *  2. 样式本身不需要采样（[GlassStyle.Thin]）→ 半透底色 + 高光边，不产生离屏缓冲；
- *  3. 没有背板，或设备低于 API 31 → 提高底色不透明度 + 静态描边。
+ * 上一版的致命问题出在 [LocalGlassBackdrop] 的作用域：只有 Tab 内容被包进了
+ * provider，底栏、记一笔、整页浮层拿到的背板全是 null，于是**全部**走了下面的
+ * 纯色降级分支 —— 整个 app 一处玻璃都没有。现在由根节点统一提供背板，
+ * 而背板的录制只挂在 Tab 内容上（悬浮件不录进去，否则会采到自己）。
+ *
+ * 三个分支由运行时决定，调用方不需要关心：
+ *  1. 样式要采样、背板可用、能力够 → 真实模糊 / 折射；
+ *  2. 样式本来就不采样（[GlassStyle.Thin]）→ 半透纸面 + 描边，底色**不做**抬升；
+ *  3. 样式要采样但采不到（没背板 / 设备低于 API 31）→ 抬底色保可读性 + 静态描边。
  *
  * @param onClick 非空时整块可点击。
  * @param tintOverride 覆盖样式自带底色（例如警示态的浅红底）。
@@ -49,14 +54,22 @@ fun GlassSurface(
 ) {
     val tint = tintOverride ?: style.tint
     val clickable = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-    val samplesBackdrop = backdrop != null && tier != GlassTier.Solid && style.samplesBackdrop
+    val canSample = backdrop != null && tier != GlassTier.Solid
 
-    if (!samplesBackdrop) {
-        // 降级 / 静态档：不采样背景，纯粹靠底色与高光边撑出材质。
+    if (!style.samplesBackdrop || !canSample) {
+        // 静态档：不采样背景，靠底色与高光边撑出材质。
+        //
+        // 只有「想采而采不到」才抬底色 —— 那种情况下模糊没了，可读性只能靠底色兜住。
+        // Thin 这种本来就不采样的档位，底色是按无背板调好的，再抬就成实心块了。
+        val fallbackTint = if (style.samplesBackdrop) {
+            tint.copy(alpha = (tint.alpha + 0.34f).coerceIn(0f, 0.97f))
+        } else {
+            tint
+        }
         Box(
             modifier
                 .clip(shape)
-                .background(style.solidTint(tint))
+                .background(fallbackTint)
                 .glassEdge(style, shape)
                 .then(clickable),
             content = content
@@ -96,17 +109,6 @@ fun GlassSurface(
         content = content
     )
 }
-
-/** 只要模糊或折射任一开启，就必须走真实采样路径。 */
-internal val GlassStyle.samplesBackdrop: Boolean
-    get() = blurRadius > 0.dp || lensHeight > 0.dp
-
-/**
- * 降级档的底色。玻璃没了，底色就必须自己扛住可读性 ——
- * 所以把 alpha 抬到 0.9 以上，而不是继续用半透。
- */
-internal fun GlassStyle.solidTint(tint: Color): Color =
-    tint.copy(alpha = (tint.alpha + 0.34f).coerceIn(0f, 0.97f))
 
 /**
  * 玻璃的高光边：上缘亮、往下一半渐隐。

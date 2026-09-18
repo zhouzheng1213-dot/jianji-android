@@ -2,18 +2,14 @@ package com.jianji.app.ui.glass
 
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -21,8 +17,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
@@ -49,17 +43,16 @@ object GlassMotion {
     /** 强调加速：退场用。开头慢，然后干脆地离开。 */
     val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 
-    /** 「果冻」弹簧：带一次轻微过冲，用于图标弹跳。 */
-    fun <T> bouncy(): FiniteAnimationSpec<T> =
-        spring(dampingRatio = 0.46f, stiffness = Spring.StiffnessMediumLow)
+    /**
+     * 整页浮层进场。带一点点过冲，但幅度收得很小 ——
+     * 这是打在 `graphicsLayer` 缩放上的，过冲太大会让页面超出屏幕再弹回来，很晃眼。
+     */
+    fun <T> sheetIn(): FiniteAnimationSpec<T> =
+        spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
 
-    /** 稳定弹簧：不过冲，用于展开 / 收起整块面板。 */
-    fun <T> settled(): FiniteAnimationSpec<T> =
-        spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
-
-    /** 收拢弹簧：比展开略硬一点，退场要利落。 */
-    fun <T> retreat(): FiniteAnimationSpec<T> =
-        spring(dampingRatio = 0.98f, stiffness = Spring.StiffnessMedium)
+    /** 整页浮层退场：干脆，不弹 —— 关闭要利落，回弹会显得犹豫。 */
+    fun <T> sheetOut(): FiniteAnimationSpec<T> =
+        spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium)
 
     const val FadeInMillis = 180
     const val FadeOutMillis = 140
@@ -75,6 +68,13 @@ object GlassMotion {
  * 关键约束：只在**打开的那一刻**调用一次 [freeze]。
  * 关闭过程中绝不能重新采样 —— 否则点了浮层里的「关闭」按钮，
  * 浮层就会改成朝那个按钮缩回去，而不是回到它当初长出来的位置。
+ *
+ * **为什么用 [transformOrigin] 而不是 Compose 自带的 `expandIn` / `shrinkOut`**：
+ * 那两个动的是 **layout 尺寸**（从 0 长到全屏）。页面里只要有 `statusBarsPadding()`
+ * 这类按约束算的 inset，尺寸为 0 时 inset 比节点还大，每一帧布局都被挤压重排，
+ * 内容就会随尺寸乱跳 —— 看起来就是「瞎飞」。
+ * `graphicsLayer` 只改绘制变换，**完全不碰布局**，inset 一次算好就不动了，
+ * 而且缩放不触发布局，动画期间零重排开销。
  */
 @Stable
 class GlassOrigin {
@@ -109,37 +109,12 @@ class GlassOrigin {
     val fraction: Offset
         get() = frozenPoint ?: Offset(0.5f, 0.5f)
 
-    val alignment: Alignment
-        get() = BiasAlignment(fraction.x * 2f - 1f, fraction.y * 2f - 1f)
-
+    /**
+     * 缩放的支点。进场从这一点放大，退场缩回**同一个**点 ——
+     * 两个方向读的是同一个值，这就是「回哪儿去」的保证。
+     */
     val transformOrigin: TransformOrigin
         get() = TransformOrigin(fraction.x, fraction.y)
-
-    /** 让浮层从锚点长出来。 */
-    fun expandIn(): EnterTransition = expandIn(
-        expandFrom = alignment,
-        initialSize = { IntSize(0, 0) },
-        clip = true,
-        animationSpec = GlassMotion.settled()
-    ) + fadeIn(
-        animationSpec = tween(
-            durationMillis = GlassMotion.FadeInMillis,
-            easing = GlassMotion.EmphasizedDecelerate
-        )
-    )
-
-    /** 让浮层缩回锚点。用的是同一个 [alignment]，这就是「回哪儿去」。 */
-    fun shrinkOut(): ExitTransition = shrinkOut(
-        shrinkTowards = alignment,
-        targetSize = { IntSize(0, 0) },
-        clip = true,
-        animationSpec = GlassMotion.retreat()
-    ) + fadeOut(
-        animationSpec = tween(
-            durationMillis = GlassMotion.FadeOutMillis,
-            easing = GlassMotion.EmphasizedAccelerate
-        )
-    )
 }
 
 /**
@@ -162,6 +137,9 @@ fun Modifier.glassOriginSource(origin: GlassOrigin): Modifier = this
 /**
  * Tab 之间的过渡：新页从它所在的那一侧滑进来，旧页朝反方向退回去。
  * 方向由索引差值决定 —— 从 0 跳 2 就是「往右走」，回来时原路返回。
+ *
+ * 这里用 `slideIn/Out` 是对的：Tab 是同层平移，没有 inset 要跟，
+ * 尺寸也从头到尾都是全屏，不会触发上面说的重排问题。
  */
 fun AnimatedContentTransitionScope<Int>.glassTabTransform(): ContentTransform {
     val forward = targetState > initialState
