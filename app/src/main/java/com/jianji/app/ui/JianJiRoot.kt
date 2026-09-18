@@ -2,39 +2,18 @@ package com.jianji.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -46,11 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -58,16 +33,11 @@ import com.jianji.app.data.TxRow
 import com.jianji.app.ui.glass.GlassBottomBarHeight
 import com.jianji.app.ui.glass.GlassMotion
 import com.jianji.app.ui.glass.GlassOrigin
-import com.jianji.app.ui.glass.GlassStyle
-import com.jianji.app.ui.glass.GlassSurface
 import com.jianji.app.ui.glass.LocalGlassBackdrop
 import com.jianji.app.ui.glass.LocalGlassContentInset
-import com.jianji.app.ui.glass.glassEdge
-import com.jianji.app.ui.glass.glassIconBounce
-import com.jianji.app.ui.glass.glassIconRotation
 import com.jianji.app.ui.glass.glassOriginSource
-import com.jianji.app.ui.glass.glassPressBounce
 import com.jianji.app.ui.glass.glassTabTransform
+import com.jianji.app.ui.glass.LiquidBottomBar
 import com.jianji.app.ui.screen.AccountsScreen
 import com.jianji.app.ui.screen.EntryScreen
 import com.jianji.app.ui.screen.LedgerManageScreen
@@ -75,10 +45,87 @@ import com.jianji.app.ui.screen.LedgerScreen
 import com.jianji.app.ui.screen.SearchScreen
 import com.jianji.app.ui.screen.SettingsScreen
 import com.jianji.app.ui.screen.StatsScreen
-import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 import com.jianji.app.vm.LedgerViewModel
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /** 覆盖在 Tab 之上的整屏页面。 */
 private sealed interface Overlay {
@@ -86,15 +133,6 @@ private sealed interface Overlay {
     data object Ledgers : Overlay
     data class Entry(val row: TxRow?) : Overlay
 }
-
-private data class TabSpec(val label: String, val icon: ImageVector)
-
-private val TABS = listOf(
-    TabSpec("明细", Icons.AutoMirrored.Filled.ReceiptLong),
-    TabSpec("统计", Icons.Filled.PieChart),
-    TabSpec("账户", Icons.Filled.AccountBalanceWallet),
-    TabSpec("设置", Icons.Filled.Settings)
-)
 
 /**
  * 整屏骨架。这里同时管四件事：
@@ -256,14 +294,16 @@ fun JianJiRoot(factory: LedgerViewModel.Factory) {
 
             // ---------- 玻璃悬浮件（在背板之外，才能采到别人） ----------
             //
-            // 底栏这次是**悬浮**的：四边都不贴边，玻璃边缘四周都有内容可以折射；
-            // 「记一笔」挪进底栏正中间，红色圆形，这是记账类 App 的经典布局。
-            GlassBottomBar(
-                current = tab,
-                onSelect = { tab = it },
+            // 底栏换成「琉音 Lyra」同款液态玻璃：三层结构 + 可拖动的
+            // 液态指示胶囊 + 中间红色「记一笔」。悬浮、四边留缝。
+            LiquidBottomBar(
+                selectedTab = { tab },
+                onTabSelected = { tab = it },
                 onAddEntry = { open(Overlay.Entry(null)) },
+                backdrop = backdrop,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
                     .padding(
                         start = 16.dp,
                         end = 16.dp,
@@ -372,105 +412,4 @@ private fun GlassPage(content: @Composable () -> Unit) {
     }
 }
 
-/**
- * 玻璃底栏：**悬浮**在滚动内容上方，四周都不贴边。
- *
- * 四个圆角 + 下方的阴影让它明确地「浮」起来；玻璃边缘四周都有
- * 滚动内容经过，折射带（lens）在任何一边都能看到字被掰弯。
- * 「记一笔」占据正中间：红色圆形，按下缩小、松开弹回，加号按下转 45°。
- */
-@Composable
-private fun GlassBottomBar(
-    current: Int,
-    onSelect: (Int) -> Unit,
-    onAddEntry: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = LocalLedgerColors.current
-    GlassSurface(
-        modifier = modifier.fillMaxWidth(),
-        style = GlassStyle.Thick,
-        shape = RoundedCornerShape(26.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(GlassBottomBarHeight),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TABS.forEachIndexed { index, spec ->
-                if (index == 2) {
-                    AddEntryBarSlot(onClick = onAddEntry)
-                }
-                val selected = index == current
-                val interaction = remember(spec.label) { MutableInteractionSource() }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = interaction,
-                            indication = null,
-                            role = Role.Tab
-                        ) { onSelect(index) }
-                        .glassIconBounce(selected = selected, amplitude = 0.3f, lift = 3.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = spec.icon,
-                        contentDescription = spec.label,
-                        tint = if (selected) Palette.Ink else colors.inkFaint,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        text = spec.label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (selected) Palette.Ink else colors.inkFaint
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 底栏正中间的「记一笔」：红色圆形，白加号。
- *
- * 红用的是支出红 —— 记账的动词性动作就是「花钱」，语义自洽；
- * 按下整颗缩小（glassPressBounce），加号同时转 45°（玻璃「开合」的暗号）。
- */
-@Composable
-private fun RowScope.AddEntryBarSlot(onClick: () -> Unit) {
-    val colors = LocalLedgerColors.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Box(
-        modifier = Modifier
-            .weight(1f)
-            .fillMaxSize()
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .glassPressBounce(interaction, pressedScale = 0.88f)
-                .clip(CircleShape)
-                .background(colors.expense)
-                .glassEdge(GlassStyle.Thick, CircleShape)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Add,
-                contentDescription = "记一笔",
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(24.dp)
-                    .glassIconRotation(expanded = pressed, degrees = 45f)
-            )
-        }
-    }
-}
 

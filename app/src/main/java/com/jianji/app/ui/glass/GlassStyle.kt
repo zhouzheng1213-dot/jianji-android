@@ -54,19 +54,18 @@ data class GlassStyle(
     companion object {
 
         /**
-         * 厚重玻璃：悬浮在滚动内容之上（底栏、页头控件）。
+         * 厚重玻璃：悬浮在滚动内容之上（页头控件：账本胶囊 / 搜索 / 月份选择器）。
          *
-         * 折射参数给得**很足**——这是这一版的核心修正：之前的 16dp/18dp 在暖白内容上
-         * 根本看不出来。lensAmount 30dp 会让玻璃边缘的字体明显弯折，
-         * 这才是 Kyant 演示里那种「一眼液态」。tint 只有 0.20，
-         * 让列表内容尽量透上来；可读性靠 blur 与高光边补。
+         * 配方对齐「琉音 Lyra」的 GlassIconButton：blur 10 + lens(24,24) +
+         * surface 0.45 —— 边缘折射带宽而明显，字体经过时会被掰弯。
+         * 底栏本身不走这档（它用 LiquidBottomBar 的三层结构）。
          */
         val Thick: GlassStyle = GlassStyle(
-            blurRadius = 18.dp,
-            lensHeight = 22.dp,
-            lensAmount = 30.dp,
+            blurRadius = 10.dp,
+            lensHeight = 24.dp,
+            lensAmount = 24.dp,
             chromaticAberration = false,
-            tint = Palette.Surface.copy(alpha = 0.20f),
+            tint = Palette.Surface.copy(alpha = 0.45f),
             highlightWidth = 1.dp,
             highlightAlpha = 0.9f,
             borderWidth = 0.8.dp,

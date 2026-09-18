@@ -20,6 +20,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 
 /** 底部导航栏高度，正文列表靠它留出滚动余量。 */
@@ -83,6 +84,9 @@ fun GlassSurface(
                 backdrop = backdrop!!,
                 shape = { shape },
                 effects = {
+                    // vibrancy：提高透射内容饱和度/亮度 —— 玻璃才「透亮」而不是「发灰」。
+                    // （琉音配方：vibrancy + blur + lens，见 GlassStyle 注释。）
+                    vibrancy()
                     if (tier.canBlur && style.blurRadius > 0.dp) {
                         blur(style.blurRadius.toPx())
                     }
