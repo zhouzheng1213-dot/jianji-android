@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 27 起才支持「深色导航栏图标」，所以单独放在这个限定目录里。 -->
+    <style name="Theme.JianJi" parent="Theme.JianJi.Base">
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

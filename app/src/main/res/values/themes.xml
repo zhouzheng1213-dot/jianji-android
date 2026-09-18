@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.JianJi" parent="android:Theme.Material.Light.NoActionBar">
+    <!--
+      暖白纸面主题。
+      API 27 以下的系统栏图标亮度属性放在 values-v27/themes.xml 里覆盖，
+      避免在 minSdk 26 上引用还不存在的属性。
+    -->
+    <style name="Theme.JianJi.Base" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/warm_white</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
+
+    <style name="Theme.JianJi" parent="Theme.JianJi.Base" />
 </resources>

@@ -16,7 +16,6 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         resourceConfigurations += listOf("zh", "zh-rCN", "en")
-        vectorDrawables { useSupportLibrary = true }
     }
 
     // 固定签名：本地与 CI 使用同一把钥匙，保证后续版本可以覆盖安装升级。
@@ -67,6 +66,14 @@ android {
 
     lint {
         abortOnError = false
+        warningsAsErrors = false
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
     }
 }
 
@@ -91,4 +98,9 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

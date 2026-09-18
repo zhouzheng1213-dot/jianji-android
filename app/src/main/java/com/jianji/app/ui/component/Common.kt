@@ -216,8 +216,8 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun EmptyHint(
     title: String,
-    subtitle: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    subtitle: String? = null
 ) {
     Column(
         modifier = modifier

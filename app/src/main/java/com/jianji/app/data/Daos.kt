@@ -150,21 +150,28 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
     suspend fun find(id: Long): TransactionEntity?
 
+    /**
+     * 收支合计。只取 0=支出 / 1=收入：转账(2) 只是钱在账户之间搬家，
+     * 计进来会让「本月结余」被凭空放大。
+     */
     @Query(
         """
         SELECT type AS type, SUM(amountCents) AS totalCents
         FROM transactions
         WHERE dateEpochDay BETWEEN :from AND :to
+          AND type IN (0, 1)
         GROUP BY type
         """
     )
     fun observeTypeTotals(from: Long, to: Long): Flow<List<TypeTotal>>
 
+    /** 按天 + 类型聚合，同样排除转账，保证每日柱状图的刻度就是真实收支。 */
     @Query(
         """
         SELECT dateEpochDay AS dateEpochDay, type AS type, SUM(amountCents) AS totalCents
         FROM transactions
         WHERE dateEpochDay BETWEEN :from AND :to
+          AND type IN (0, 1)
         GROUP BY dateEpochDay, type
         ORDER BY dateEpochDay
         """
