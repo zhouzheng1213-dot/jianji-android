@@ -96,6 +96,8 @@ aapt2 dump permissions app/build/outputs/apk/release/app-release.apk
 推送到 `main` 即触发 `.github/workflows/build.yml`：
 
 1. 还原二进制 → 装 JDK 17 / Gradle / Android SDK 35
+   （构建命令优先用仓库里的 `./gradlew`，把 Gradle 锁在 8.8；万一 wrapper jar 没还原成功，
+   会自动退回 runner 上 setup-gradle 提供的 `gradle`，不让整条流水线因为一个文件挂掉）
 2. 跑单元测试
 3. 编译 debug 与 release 两个 APK
 4. 计算 SHA-256，并审计 APK 是否混入网络/存储权限（有则失败）
