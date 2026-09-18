@@ -12,6 +12,7 @@ data class TxRow(
     val note: String,
     val createdAt: Long,
     val updatedAt: Long,
+    val ledgerId: Long,
     val categoryName: String?,
     val categoryIcon: String?,
     val categoryColor: String?,
@@ -28,7 +29,8 @@ data class TxRow(
         dateEpochDay = dateEpochDay,
         note = note,
         createdAt = createdAt,
-        updatedAt = updatedAt
+        updatedAt = updatedAt,
+        ledgerId = ledgerId
     )
 }
 

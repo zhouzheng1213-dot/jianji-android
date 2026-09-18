@@ -53,6 +53,7 @@ import com.jianji.app.ui.component.LedgerCard
 import com.jianji.app.ui.component.PillChip
 import com.jianji.app.ui.component.Shape
 import com.jianji.app.ui.component.amountStyle
+import com.jianji.app.ui.glass.LocalGlassContentInset
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 
@@ -252,7 +253,8 @@ fun AccountsScreen(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        // 内容滚到玻璃底栏下面，底部余量由这里给。
+        Spacer(Modifier.height(LocalGlassContentInset.current + 24.dp))
     }
 
     if (showEditor) {

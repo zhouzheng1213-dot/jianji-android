@@ -2,6 +2,7 @@ package com.jianji.app.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,7 @@ import com.jianji.app.ui.component.PillChip
 import com.jianji.app.ui.component.Shape
 import com.jianji.app.ui.component.TransactionItem
 import com.jianji.app.ui.component.amountStyle
+import com.jianji.app.ui.glass.glassBackRebound
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 import com.jianji.app.vm.RangeMode
@@ -99,11 +101,13 @@ fun SearchScreen(
                 .padding(start = 6.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val backPress = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .size(40.dp)
+                    .glassBackRebound(backPress)
                     .clip(Shape.pill)
-                    .clickable(onClick = onClose),
+                    .clickable(interactionSource = backPress, indication = null, onClick = onClose),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

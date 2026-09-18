@@ -95,6 +95,22 @@ jobs:
       - name: Run unit tests
         run: $GRADLE_CMD :app:testDebugUnitTest --no-daemon --stacktrace
 
+      # lint 会拦住 NewApi 这类「运行期才炸」的问题 —— 本项目 minSdk 26，
+      # 而液态玻璃用到的 RuntimeShader 是 API 33 的类，光靠肉眼看守卫很容易漏。
+      # 只对 error 级别设卡（abortOnError 在 app/build.gradle.kts 里为 false，
+      # 这里显式再断言一次报告里没有 error，免得不小心把那行配置改掉）。
+      - name: Lint
+        run: |
+          set -euo pipefail
+          $GRADLE_CMD :app:lintDebug --no-daemon --stacktrace
+          REPORT=app/build/reports/lint-results-debug.html
+          if grep -qE "Lint Report: [0-9]+ error" "$REPORT"; then
+            echo "::error::lint 报告里存在 error 级别问题"
+            grep -oE "Lint Report: [0-9]+ error[s]? and [0-9]+ warning[s]?" "$REPORT" || true
+            exit 1
+          fi
+          echo "OK: lint 无 error"
+
       - name: Build debug APK
         run: $GRADLE_CMD :app:assembleDebug --no-daemon --stacktrace
 

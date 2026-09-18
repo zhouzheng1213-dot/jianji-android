@@ -15,13 +15,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +36,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jianji.app.ui.AppIcons
+import com.jianji.app.ui.glass.GlassStyle
+import com.jianji.app.ui.glass.GlassSurface
+import com.jianji.app.ui.glass.glassPressBounce
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 
@@ -67,18 +72,25 @@ fun Hairline(modifier: Modifier = Modifier) {
     )
 }
 
-/** 纸片卡片：白底 + 极细描边，不用阴影，保持纸张感。 */
+/**
+ * 玻璃卡片。全套界面里的卡片都走这里，材质只有一种解释：**薄玻璃**。
+ *
+ * 为什么是薄玻璃而不是厚玻璃：卡片都在滚动内容里，而滚动内容本身已经录进了背板层。
+ * 如果卡片采样背板，就会采到自己刚画上去的那一帧 —— 结果是重影，不是折射。
+ * 所以滚动区一律用「半透底 + 上缘高光」，真折射留给底栏与整页浮层。
+ */
 @Composable
 fun LedgerCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val base = modifier
-        .clip(Shape.card)
-        .background(Color.White)
-        .border(BorderStroke(1.dp, LocalLedgerColors.current.line), Shape.card)
-    Box(if (onClick != null) base.clickable(onClick = onClick) else base) {
+    GlassSurface(
+        modifier = modifier,
+        style = GlassStyle.Thin,
+        shape = Shape.card,
+        onClick = onClick
+    ) {
         content()
     }
 }
@@ -90,11 +102,12 @@ fun CategoryAvatar(
     colorHex: String?,
     size: Dp = 40.dp,
     iconSize: Dp = 20.dp,
-    fallbackColor: Color = Palette.InkFaint
+    fallbackColor: Color = Palette.InkFaint,
+    modifier: Modifier = Modifier
 ) {
     val color = parseColor(colorHex, fallbackColor)
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(size)
             .clip(CircleShape)
             .background(color.copy(alpha = 0.12f)),
@@ -287,14 +300,14 @@ fun MonthSelector(
                 .padding(horizontal = 3.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ChevronStep(Icons.Filled.KeyboardArrowLeft, "上个月", onPrev)
+            ChevronStep(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "上个月", onPrev)
             Text(
                 text = label,
                 modifier = Modifier.padding(horizontal = 6.dp),
                 style = MaterialTheme.typography.titleMedium,
                 color = Palette.Ink
             )
-            ChevronStep(Icons.Filled.KeyboardArrowRight, "下个月", onNext)
+            ChevronStep(Icons.AutoMirrored.Filled.KeyboardArrowRight, "下个月", onNext)
         }
 
         if (!isCurrentMonth) {
@@ -320,11 +333,13 @@ fun MonthSelector(
 
 @Composable
 private fun ChevronStep(icon: ImageVector, description: String, onClick: () -> Unit) {
+    val press = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .size(30.dp)
+            .glassPressBounce(press, pressedScale = 0.84f)
             .clip(Shape.pill)
-            .clickable(onClick = onClick),
+            .clickable(interactionSource = press, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(

@@ -8,6 +8,7 @@ import com.jianji.app.data.AccountWithBalance
 import com.jianji.app.data.CategoryEntity
 import com.jianji.app.data.CategoryStatRow
 import com.jianji.app.data.DeleteOutcome
+import com.jianji.app.data.LedgerEntity
 import com.jianji.app.data.LedgerRepository
 import com.jianji.app.data.SettingsStore
 import com.jianji.app.data.TransactionEntity
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -32,6 +34,8 @@ private const val EPOCH_MAX = 100_000L
 
 data class LedgerUiState(
     val month: YearMonth,
+    val ledger: LedgerEntity? = null,
+    val ledgers: List<LedgerEntity> = emptyList(),
     val expenseCategories: List<CategoryEntity> = emptyList(),
     val incomeCategories: List<CategoryEntity> = emptyList(),
     val accounts: List<AccountEntity> = emptyList(),
@@ -40,11 +44,34 @@ data class LedgerUiState(
     val dayGroups: List<DayGroup> = emptyList(),
     val monthExpenseCents: Long = 0L,
     val monthIncomeCents: Long = 0L,
+    val lifetimeExpenseCents: Long = 0L,
+    val lifetimeIncomeCents: Long = 0L,
     val transactionCount: Int = 0
 ) {
     val monthBalanceCents: Long get() = monthIncomeCents - monthExpenseCents
+
     val totalAssetsCents: Long get() = balances.sumOf { it.balanceCents }
+
     val isCurrentMonth: Boolean get() = month == YearMonth.now()
+
+    val ledgerId: Long get() = ledger?.id ?: LedgerEntity.DEFAULT_ID
+
+    /** 该账本是否设了预算。预算为 0 表示「不设」。 */
+    val hasBudget: Boolean get() = (ledger?.budgetCents ?: 0L) > 0L
+
+    /** 预算消耗比例，未设预算时为 0。 */
+    val budgetFraction: Float
+        get() {
+            val budget = ledger?.budgetCents ?: 0L
+            if (budget <= 0L) return 0f
+            return (lifetimeExpenseCents.toDouble() / budget.toDouble()).toFloat()
+        }
+
+    /** 预算剩余（分），可为负 —— 超支时正是要让它负着显示。 */
+    val budgetRemainingCents: Long
+        get() = (ledger?.budgetCents ?: 0L) - lifetimeExpenseCents
+
+    val isOverBudget: Boolean get() = hasBudget && lifetimeExpenseCents > (ledger?.budgetCents ?: 0L)
 }
 
 data class StatsUiState(
@@ -70,11 +97,27 @@ class LedgerViewModel(
 ) : ViewModel() {
 
     private val month = MutableStateFlow(Dates.currentMonth())
+    private val ledgerId = MutableStateFlow(settings.lastLedgerId)
     private val statsMode = MutableStateFlow(TxType.EXPENSE)
     private val filter = MutableStateFlow(SearchFilter())
 
     val currentMonth: StateFlow<YearMonth> = month.asStateFlow()
     val searchFilter: StateFlow<SearchFilter> = filter.asStateFlow()
+    val currentLedgerId: StateFlow<Long> = ledgerId.asStateFlow()
+
+    init {
+        // 账本被归档或被删掉之后，把当前选中项挪回第一本可用的，
+        // 否则整个明细页会静默变成空白，用户只会以为数据丢了。
+        viewModelScope.launch {
+            repo.observeLedgers()
+                .distinctUntilChanged()
+                .collect { list ->
+                    if (list.isNotEmpty() && list.none { it.id == ledgerId.value }) {
+                        selectLedger(list.first().id)
+                    }
+                }
+        }
+    }
 
     // 账户与分类属于「跨月常驻」数据，单独合成一次，避免每次切月都重新订阅。
     private val categoriesFlow = combine(
@@ -88,31 +131,39 @@ class LedgerViewModel(
         repo.observeAllAccounts()
     ) { active, balances, all -> Triple(active, balances, all) }
 
-    private val stableFlow = combine(
-        categoriesFlow,
-        accountsFlow,
-        repo.observeTransactionCount()
-    ) { categories, accounts, count -> Triple(categories, accounts, count) }
+    val allLedgers: StateFlow<List<LedgerEntity>> = repo.observeAllLedgers()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val uiState: StateFlow<LedgerUiState> = month.flatMapLatest { ym ->
-        val from = Dates.monthStart(ym)
-        val to = Dates.monthEnd(ym)
+    val allCategories: StateFlow<List<CategoryEntity>> = repo.observeAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val uiState: StateFlow<LedgerUiState> = combine(month, ledgerId, repo.observeLedgers()) {
+            m, id, ledgers -> Triple(m, id, ledgers)
+    }.flatMapLatest { (m, id, ledgers) ->
+        val from = Dates.monthStart(m)
+        val to = Dates.monthEnd(m)
         combine(
-            repo.observeRange(from, to),
-            repo.observeTypeTotals(from, to),
-            stableFlow
-        ) { rows, totals, stable ->
-            val (categories, accounts, count) = stable
+            repo.observeRange(id, from, to),
+            repo.observeTypeTotals(id, from, to),
+            repo.observeTypeTotals(id, EPOCH_MIN, EPOCH_MAX),
+            repo.observeCountIn(id),
+            combine(categoriesFlow, accountsFlow) { c, a -> c to a }
+        ) { rows, monthTotals, lifetimeTotals, count, stable ->
+            val (categories, accounts) = stable
             LedgerUiState(
-                month = ym,
+                month = m,
+                ledger = ledgers.firstOrNull { it.id == id },
+                ledgers = ledgers,
                 expenseCategories = categories.first,
                 incomeCategories = categories.second,
                 accounts = accounts.first,
                 balances = accounts.second,
                 archivedAccounts = accounts.third.filter { it.archived },
                 dayGroups = rows.groupByDay(),
-                monthExpenseCents = totals.firstOrNull { it.type == TxType.EXPENSE }?.totalCents ?: 0L,
-                monthIncomeCents = totals.firstOrNull { it.type == TxType.INCOME }?.totalCents ?: 0L,
+                monthExpenseCents = monthTotals.expense(),
+                monthIncomeCents = monthTotals.income(),
+                lifetimeExpenseCents = lifetimeTotals.expense(),
+                lifetimeIncomeCents = lifetimeTotals.income(),
                 transactionCount = count
             )
         }
@@ -122,52 +173,52 @@ class LedgerViewModel(
         initialValue = LedgerUiState(month = Dates.currentMonth())
     )
 
-    val statsState: StateFlow<StatsUiState> = combine(month, statsMode) { m, mode -> m to mode }
-        .flatMapLatest { (m, mode) ->
-            val from = Dates.monthStart(m)
-            val to = Dates.monthEnd(m)
-            val trendFrom = Dates.monthStart(m.minusMonths(5))
-            combine(
-                repo.observeCategoryStats(mode, from, to),
-                repo.observeDayTotals(from, to),
-                repo.observeDayTotals(trendFrom, to)
-            ) { stats, days, trendDays ->
-                StatsUiState(
-                    month = m,
-                    mode = mode,
-                    categoryStats = stats,
-                    totalCents = stats.sumOf { it.totalCents },
-                    dailyExpense = days
-                        .filter { it.type == TxType.EXPENSE }
-                        .map { it.dateEpochDay to it.totalCents },
-                    trend = buildTrend(m, trendDays)
-                )
-            }
-        }.stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = StatsUiState(Dates.currentMonth(), TxType.EXPENSE)
-        )
-
-    val allCategories: StateFlow<List<CategoryEntity>> = repo.observeAllCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    val searchState: StateFlow<SearchUiState> = filter.flatMapLatest { f ->
-        val (from, to) = f.rangeBounds()
-        repo.search(
-            from = from,
-            to = to,
-            type = f.type,
-            categoryId = f.categoryId,
-            keyword = f.keyword.trim(),
-            minCents = f.minCents,
-            maxCents = f.maxCents
-        ).map { rows -> SearchUiState(f, rows) }
+    val statsState: StateFlow<StatsUiState> = combine(month, statsMode, ledgerId) { m, mode, id ->
+        Triple(m, mode, id)
+    }.flatMapLatest { (m, mode, id) ->
+        val from = Dates.monthStart(m)
+        val to = Dates.monthEnd(m)
+        val trendFrom = Dates.monthStart(m.minusMonths(5))
+        combine(
+            repo.observeCategoryStats(id, mode, from, to),
+            repo.observeDayTotals(id, from, to),
+            repo.observeDayTotals(id, trendFrom, to)
+        ) { stats, days, trendDays ->
+            StatsUiState(
+                month = m,
+                mode = mode,
+                categoryStats = stats,
+                totalCents = stats.sumOf { it.totalCents },
+                dailyExpense = days
+                    .filter { it.type == TxType.EXPENSE }
+                    .map { it.dateEpochDay to it.totalCents },
+                trend = buildTrend(m, trendDays)
+            )
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = SearchUiState(SearchFilter())
+        initialValue = StatsUiState(Dates.currentMonth(), TxType.EXPENSE)
     )
+
+    val searchState: StateFlow<SearchUiState> = combine(filter, ledgerId) { f, id -> f to id }
+        .flatMapLatest { (f, id) ->
+            val (from, to) = f.rangeBounds()
+            repo.search(
+                ledgerId = id,
+                from = from,
+                to = to,
+                type = f.type,
+                categoryId = f.categoryId,
+                keyword = f.keyword.trim(),
+                minCents = f.minCents,
+                maxCents = f.maxCents
+            ).map { rows -> SearchUiState(f, rows) }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = SearchUiState(SearchFilter())
+        )
 
     // ---------- 月份导航 ----------
 
@@ -182,6 +233,34 @@ class LedgerViewModel(
     fun setStatsMode(mode: Int) {
         statsMode.value = mode
     }
+
+    // ---------- 账本 ----------
+
+    fun selectLedger(id: Long) {
+        ledgerId.value = id
+        settings.lastLedgerId = id
+    }
+
+    /** 新建账本后立即切过去，省掉一次「再点一下」。 */
+    fun addLedger(name: String, icon: String, colorHex: String, budgetCents: Long) {
+        viewModelScope.launch {
+            selectLedger(repo.addLedger(name, icon, colorHex, budgetCents))
+        }
+    }
+
+    fun updateLedger(item: LedgerEntity) {
+        viewModelScope.launch { repo.updateLedger(item) }
+    }
+
+    fun setLedgerArchived(id: Long, archived: Boolean) {
+        viewModelScope.launch { repo.setLedgerArchived(id, archived) }
+    }
+
+    fun deleteLedger(id: Long, onResult: (DeleteOutcome) -> Unit) {
+        viewModelScope.launch { onResult(repo.deleteLedger(id)) }
+    }
+
+    suspend fun ledgerUsage(id: Long): Int = repo.transactionCountIn(id)
 
     // ---------- 筛选 ----------
 
@@ -199,18 +278,21 @@ class LedgerViewModel(
 
     fun saveTransaction(entity: TransactionEntity, editing: Boolean, onDone: (Long) -> Unit = {}) {
         viewModelScope.launch {
+            // 新增的流水一律落进「当前账本」。放在这里统一兜底，
+            // EntryScreen 就不需要知道账本的存在，也就不会漏传。
+            val target = if (editing) entity else entity.copy(ledgerId = ledgerId.value)
             val id = if (editing) {
-                repo.updateTransaction(entity)
-                entity.id
+                repo.updateTransaction(target)
+                target.id
             } else {
-                repo.insertTransaction(entity)
+                repo.insertTransaction(target)
             }
-            if (entity.type == TxType.EXPENSE) {
-                settings.lastExpenseCategoryId = entity.categoryId ?: -1L
-            } else if (entity.type == TxType.INCOME) {
-                settings.lastIncomeCategoryId = entity.categoryId ?: -1L
+            if (target.type == TxType.EXPENSE) {
+                settings.lastExpenseCategoryId = target.categoryId ?: -1L
+            } else if (target.type == TxType.INCOME) {
+                settings.lastIncomeCategoryId = target.categoryId ?: -1L
             }
-            settings.lastAccountId = entity.accountId
+            settings.lastAccountId = target.accountId
             onDone(id)
         }
     }
@@ -222,9 +304,11 @@ class LedgerViewModel(
         }
     }
 
-    fun clearAllTransactions(onDone: () -> Unit = {}) {
+    /** 清空范围限定在当前账本，并且是**本账本全部时间**的流水。 */
+    fun clearCurrentLedger(onDone: () -> Unit = {}) {
+        val id = ledgerId.value
         viewModelScope.launch {
-            repo.clearAllTransactions()
+            repo.clearLedger(id)
             onDone()
         }
     }
@@ -293,6 +377,12 @@ class LedgerViewModel(
 }
 
 // ---------- 纯函数工具 ----------
+
+private fun List<com.jianji.app.data.TypeTotal>.expense(): Long =
+    firstOrNull { it.type == TxType.EXPENSE }?.totalCents ?: 0L
+
+private fun List<com.jianji.app.data.TypeTotal>.income(): Long =
+    firstOrNull { it.type == TxType.INCOME }?.totalCents ?: 0L
 
 private fun List<TxRow>.groupByDay(): List<DayGroup> =
     groupBy { it.dateEpochDay }

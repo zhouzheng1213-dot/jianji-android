@@ -57,6 +57,27 @@ object Seed {
         AccountEntity(name = "银行卡", type = AccountType.DEBIT, icon = "card", sortOrder = 3)
     )
 
+    /**
+     * 内置账本「日常」。必须走 [LedgerDao.insertBuiltIn] 写，
+     * 保证 id 就是 [LedgerEntity.DEFAULT_ID]，与 v1 迁移过来的历史流水对齐。
+     */
+    fun defaultLedger(): LedgerEntity = LedgerEntity(
+        id = LedgerEntity.DEFAULT_ID,
+        name = LedgerEntity.DEFAULT_NAME,
+        icon = LedgerEntity.DEFAULT_ICON,
+        colorHex = LedgerEntity.DEFAULT_COLOR,
+        budgetCents = 0L,
+        sortOrder = 0,
+        archived = false,
+        builtIn = true
+    )
+
+    /** 新建账本时可挑的配色，比分类色板更收敛一些。 */
+    val ledgerPalette: List<String> = listOf(
+        "#2B2724", "#3F8F6B", "#4E7C9B", "#C8503C",
+        "#9B6BA0", "#C9853C", "#4C8C93", "#A0725A"
+    )
+
     /** 自定义分类可选的新增配色 */
     val palette: List<String> = listOf(
         C_RED, C_ORANGE, C_YELLOW, C_OLIVE, C_GREEN, C_TEAL,

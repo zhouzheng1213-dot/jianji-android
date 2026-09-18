@@ -24,6 +24,10 @@ import java.time.YearMonth
  * 用真实 SQLite（内存库）跑一遍全部手写 SQL。
  * 这些查询里有 JOIN、子查询余额、GROUP BY 聚合，是最容易写错、也最难靠肉眼发现的地方，
  * 所以这里针对每一条都留了断言。
+ *
+ * 引入独立账本后，所有流水查询都多了一个 `ledgerId` 前置参数；
+ * 这一份用例统一使用默认账本，断言与引入账本之前**逐条一致** ——
+ * 也就是说，它同时充当「账本重构没有改变原有行为」的回归证据。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -32,13 +36,21 @@ class LedgerDatabaseTest {
     private lateinit var db: AppDatabase
     private lateinit var repo: LedgerRepository
 
+    /** 默认账本 id。v1 历史数据与这里的用例都落在这一本。 */
+    private val ledger = LedgerEntity.DEFAULT_ID
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        repo = LedgerRepository(db.categoryDao(), db.accountDao(), db.transactionDao())
+        repo = LedgerRepository(
+            db.ledgerDao(),
+            db.categoryDao(),
+            db.accountDao(),
+            db.transactionDao()
+        )
     }
 
     @After
@@ -140,7 +152,11 @@ class LedgerDatabaseTest {
         expense(1_000L, expenseCategory.id, accounts[0].id, day(2026, 9, 5))
         transfer(9_999L, accounts[0].id, accounts[1].id, day(2026, 9, 6))
 
-        val totals = repo.observeTypeTotals(Dates.monthStart(YearMonth.of(2026, 9)), Dates.monthEnd(YearMonth.of(2026, 9))).first()
+        val totals = repo.observeTypeTotals(
+            ledger,
+            Dates.monthStart(YearMonth.of(2026, 9)),
+            Dates.monthEnd(YearMonth.of(2026, 9))
+        ).first()
         assertEquals(1_000L, totals.firstOrNull { it.type == TxType.EXPENSE }?.totalCents)
         assertNull(totals.firstOrNull { it.type == TxType.INCOME })
         assertNull(totals.firstOrNull { it.type == TxType.TRANSFER })
@@ -160,6 +176,7 @@ class LedgerDatabaseTest {
         expense(400L, category.id, account.id, day(2026, 10, 1), "下个月")
 
         val rows = repo.observeRange(
+            ledger,
             Dates.monthStart(YearMonth.of(2026, 9)),
             Dates.monthEnd(YearMonth.of(2026, 9))
         ).first()
@@ -185,6 +202,7 @@ class LedgerDatabaseTest {
         expense(700L, category.id, accounts[0].id, day(2026, 9, 16))
 
         val days = repo.observeDayTotals(
+            ledger,
             Dates.monthStart(YearMonth.of(2026, 9)),
             Dates.monthEnd(YearMonth.of(2026, 9))
         ).first()
@@ -209,6 +227,7 @@ class LedgerDatabaseTest {
         expense(5_000L, transport.id, account.id, day(2026, 9, 5))
 
         val stats = repo.observeCategoryStats(
+            ledger,
             TxType.EXPENSE,
             Dates.monthStart(YearMonth.of(2026, 9)),
             Dates.monthEnd(YearMonth.of(2026, 9))
@@ -237,7 +256,7 @@ class LedgerDatabaseTest {
         expense(4_000L, expenseCategory.id, account.id, day(2026, 9, 8))
         income(9_000L, incomeCategory.id, account.id, day(2026, 9, 9))
 
-        val incomeStats = repo.observeCategoryStats(TxType.INCOME, from, to).first()
+        val incomeStats = repo.observeCategoryStats(ledger, TxType.INCOME, from, to).first()
         assertEquals(1, incomeStats.size)
         assertEquals(9_000L, incomeStats[0].totalCents)
         assertEquals(incomeCategory.id, incomeStats[0].categoryId)
@@ -257,28 +276,28 @@ class LedgerDatabaseTest {
         expense(8_800L, food.id, account.id, day(2026, 9, 4), note = "聚餐")
         expense(9_900L, transport.id, account.id, day(2026, 9, 5), note = "打车回家")
 
-        val all = ALL_TIME
+        val (allFrom, allTo) = ALL_TIME
         // 关键词命中备注
-        val byKeyword = repo.search(all.first, all.second, -1, -1L, "聚餐", -1L, -1L).first()
+        val byKeyword = repo.search(ledger, allFrom, allTo, -1, -1L, "聚餐", -1L, -1L).first()
         assertEquals(1, byKeyword.size)
         assertEquals("聚餐", byKeyword.first().note)
 
         // 关键词也能命中分类名
-        val byCategoryName = repo.search(all.first, all.second, -1, -1L, "交通", -1L, -1L).first()
+        val byCategoryName = repo.search(ledger, allFrom, allTo, -1, -1L, "交通", -1L, -1L).first()
         assertEquals(1, byCategoryName.size)
 
         // 类型 + 分类 + 金额下限
-        val combo = repo.search(all.first, all.second, TxType.EXPENSE, food.id, "", 5_000L, -1L).first()
+        val combo = repo.search(ledger, allFrom, allTo, TxType.EXPENSE, food.id, "", 5_000L, -1L).first()
         assertEquals(1, combo.size)
         assertEquals(8_800L, combo.first().amountCents)
 
         // 金额上限
-        val capped = repo.search(all.first, all.second, -1, -1L, "", -1L, 2_000L).first()
+        val capped = repo.search(ledger, allFrom, allTo, -1, -1L, "", -1L, 2_000L).first()
         assertEquals(1, capped.size)
         assertEquals(1_200L, capped.first().amountCents)
 
         // 无命中
-        assertTrue(repo.search(all.first, all.second, -1, -1L, "不存在的备注", -1L, -1L).first().isEmpty())
+        assertTrue(repo.search(ledger, allFrom, allTo, -1, -1L, "不存在的备注", -1L, -1L).first().isEmpty())
     }
 
     @Test
@@ -291,7 +310,7 @@ class LedgerDatabaseTest {
         expense(600L, category.id, accounts[1].id, day(2026, 9, 8))
 
         val hit = repo.search(
-            ALL_TIME.first, ALL_TIME.second, -1, -1L, accounts[1].name, -1L, -1L
+            ledger, ALL_TIME.first, ALL_TIME.second, -1, -1L, accounts[1].name, -1L, -1L
         ).first()
 
         assertEquals(1, hit.size)
@@ -306,7 +325,7 @@ class LedgerDatabaseTest {
 
         val id = expense(4_321L, category.id, account.id, day(2026, 9, 13), note = "保留原值")
 
-        val row = repo.observeRange(day(2026, 9, 13), day(2026, 9, 13)).first().first()
+        val row = repo.observeRange(ledger, day(2026, 9, 13), day(2026, 9, 13)).first().first()
         assertEquals(id, row.id)
         assertEquals(4_321L, row.amountCents)
         assertEquals("保留原值", row.note)
@@ -317,6 +336,7 @@ class LedgerDatabaseTest {
         assertEquals(id, entity.id)
         assertEquals(category.id, entity.categoryId)
         assertEquals(account.id, entity.accountId)
+        assertEquals(ledger, entity.ledgerId)
         assertNull(entity.toAccountId)
     }
 
@@ -345,9 +365,9 @@ class LedgerDatabaseTest {
         val category = repo.observeCategories(TxType.EXPENSE).first().first()
         expense(1_000L, category.id, account.id, day(2026, 9, 21))
 
-        repo.clearAllTransactions()
+        repo.clearLedger(ledger)
 
-        assertEquals(0, repo.observeTransactionCount().first())
+        assertEquals(0, repo.observeCountIn(ledger).first())
         assertEquals(18, repo.observeAllCategories().first().size)
         assertEquals(4, repo.observeActiveAccounts().first().size)
     }
@@ -359,12 +379,12 @@ class LedgerDatabaseTest {
         val category = repo.observeCategories(TxType.EXPENSE).first().first()
         val id = expense(7_000L, category.id, account.id, day(2026, 9, 22))
 
-        assertEquals(1, repo.observeTransactionCount().first())
+        assertEquals(1, repo.observeCountIn(ledger).first())
         assertEquals(-7_000L, repo.observeAccounts().first().first { it.id == account.id }.balanceCents)
 
         repo.deleteTransaction(id)
 
-        assertEquals(0, repo.observeTransactionCount().first())
+        assertEquals(0, repo.observeCountIn(ledger).first())
         assertEquals(0L, repo.observeAccounts().first().first { it.id == account.id }.balanceCents)
     }
 

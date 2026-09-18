@@ -52,6 +52,7 @@ import com.jianji.app.ui.component.LedgerCard
 import com.jianji.app.ui.component.SegmentedTabs
 import com.jianji.app.ui.component.Shape
 import com.jianji.app.ui.component.parseColor
+import com.jianji.app.ui.glass.LocalGlassContentInset
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 
@@ -63,7 +64,10 @@ fun SettingsScreen(
     onUpdateCategory: (CategoryEntity) -> Unit,
     onSetCategoryHidden: (Long, Boolean) -> Unit,
     onDeleteCategory: (Long, (DeleteOutcome) -> Unit) -> Unit,
-    onClearAll: () -> Unit,
+    onClearLedger: () -> Unit,
+    onOpenLedgers: () -> Unit,
+    ledgerName: String,
+    ledgerCount: Int,
     modifier: Modifier = Modifier
 ) {
     val colors = LocalLedgerColors.current
@@ -218,13 +222,20 @@ fun SettingsScreen(
             Column {
                 SettingRow(
                     title = "累计记录",
-                    subtitle = "所有月份加起来的流水笔数",
+                    subtitle = "当前账本所有月份加起来的流水笔数",
                     trailing = "$transactionCount 笔"
                 )
                 Hairline(Modifier.padding(start = 18.dp))
                 SettingRow(
-                    title = "清空所有流水",
-                    subtitle = "分类与账户会保留，删掉的流水无法恢复",
+                    title = "账本管理",
+                    subtitle = "新建、改名、设置预算或归档账本",
+                    trailing = "$ledgerCount 本",
+                    onClick = onOpenLedgers
+                )
+                Hairline(Modifier.padding(start = 18.dp))
+                SettingRow(
+                    title = "清空「$ledgerName」流水",
+                    subtitle = "只清空当前账本；分类与账户保留，删掉的流水无法恢复",
                     trailing = null,
                     danger = true,
                     onClick = { showClearConfirm = true }
@@ -258,7 +269,8 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(Modifier.height(28.dp))
+        // 内容滚到玻璃底栏下面，底部余量由这里给。
+        Spacer(Modifier.height(LocalGlassContentInset.current + 28.dp))
     }
 
     toast?.let { message ->
@@ -309,11 +321,11 @@ fun SettingsScreen(
             onDismissRequest = { showClearConfirm = false },
             containerColor = Color.White,
             title = {
-                Text("清空所有流水？", style = MaterialTheme.typography.titleMedium, color = Palette.Ink)
+                Text("清空「$ledgerName」？", style = MaterialTheme.typography.titleMedium, color = Palette.Ink)
             },
             text = {
                 Text(
-                    text = "这会删除全部 $transactionCount 笔流水，且无法撤销。分类和账户会保留。",
+                    text = "这会删除「$ledgerName」里的全部 $transactionCount 笔流水，且无法撤销。分类和账户会保留，其他账本不受影响。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.inkSoft
                 )
@@ -321,7 +333,7 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showClearConfirm = false
-                    onClearAll()
+                    onClearLedger()
                 }) { Text("确认清空", color = colors.expense) }
             },
             dismissButton = {

@@ -18,6 +18,7 @@ SELECT t.id AS id,
        t.note AS note,
        t.createdAt AS createdAt,
        t.updatedAt AS updatedAt,
+       t.ledgerId AS ledgerId,
        c.name AS categoryName,
        c.icon AS categoryIcon,
        c.colorHex AS categoryColor,
@@ -118,15 +119,75 @@ interface AccountDao {
 }
 
 @Dao
-interface TransactionDao {
+interface LedgerDao {
 
-    @Query("$TX_SELECT WHERE t.dateEpochDay BETWEEN :from AND :to ORDER BY t.dateEpochDay DESC, t.createdAt DESC, t.id DESC")
-    fun observeRange(from: Long, to: Long): Flow<List<TxRow>>
+    @Query("SELECT * FROM ledgers WHERE archived = 0 ORDER BY sortOrder, id")
+    fun observeActive(): Flow<List<LedgerEntity>>
+
+    @Query("SELECT * FROM ledgers ORDER BY archived, sortOrder, id")
+    fun observeAll(): Flow<List<LedgerEntity>>
+
+    @Query("SELECT * FROM ledgers WHERE id = :id LIMIT 1")
+    suspend fun find(id: Long): LedgerEntity?
+
+    @Query("SELECT COUNT(*) FROM ledgers")
+    suspend fun count(): Int
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) + 1 FROM ledgers")
+    suspend fun nextSortOrder(): Int
+
+    /**
+     * 写入内置账本并**固定 id**。
+     *
+     * 不能用 `@Insert` —— `autoGenerate = true` 时 Room 会把 id 0 当成「未指定」并改写为 NULL，
+     * 于是 sqlite 自动分配成 1，`LedgerEntity.DEFAULT_ID` 的约定就断了。
+     */
+    @Query(
+        """
+        INSERT OR IGNORE INTO ledgers
+        (id, name, icon, colorHex, budgetCents, sortOrder, archived, builtIn)
+        VALUES (:id, :name, :icon, :colorHex, :budgetCents, :sortOrder, 0, 1)
+        """
+    )
+    suspend fun insertBuiltIn(
+        id: Long,
+        name: String,
+        icon: String,
+        colorHex: String,
+        budgetCents: Long,
+        sortOrder: Int
+    )
+
+    @Insert
+    suspend fun insert(item: LedgerEntity): Long
+
+    @Update
+    suspend fun update(item: LedgerEntity)
+
+    @Query("UPDATE ledgers SET archived = :archived WHERE id = :id")
+    suspend fun setArchived(id: Long, archived: Boolean)
+
+    @Query("DELETE FROM ledgers WHERE id = :id AND builtIn = 0")
+    suspend fun deleteCustom(id: Long)
+}
+
+@Dao
+interface TransactionDao {
 
     @Query(
         """
         $TX_SELECT
-        WHERE t.dateEpochDay BETWEEN :from AND :to
+        WHERE t.ledgerId = :ledgerId AND t.dateEpochDay BETWEEN :from AND :to
+        ORDER BY t.dateEpochDay DESC, t.createdAt DESC, t.id DESC
+        """
+    )
+    fun observeRange(ledgerId: Long, from: Long, to: Long): Flow<List<TxRow>>
+
+    @Query(
+        """
+        $TX_SELECT
+        WHERE t.ledgerId = :ledgerId
+          AND t.dateEpochDay BETWEEN :from AND :to
           AND (:type = -1 OR t.type = :type)
           AND (:categoryId = -1 OR t.categoryId = :categoryId)
           AND (:keyword = '' OR t.note LIKE '%' || :keyword || '%'
@@ -138,6 +199,7 @@ interface TransactionDao {
         """
     )
     fun search(
+        ledgerId: Long,
         from: Long,
         to: Long,
         type: Int,
@@ -158,25 +220,27 @@ interface TransactionDao {
         """
         SELECT type AS type, SUM(amountCents) AS totalCents
         FROM transactions
-        WHERE dateEpochDay BETWEEN :from AND :to
+        WHERE ledgerId = :ledgerId
+          AND dateEpochDay BETWEEN :from AND :to
           AND type IN (0, 1)
         GROUP BY type
         """
     )
-    fun observeTypeTotals(from: Long, to: Long): Flow<List<TypeTotal>>
+    fun observeTypeTotals(ledgerId: Long, from: Long, to: Long): Flow<List<TypeTotal>>
 
     /** 按天 + 类型聚合，同样排除转账，保证每日柱状图的刻度就是真实收支。 */
     @Query(
         """
         SELECT dateEpochDay AS dateEpochDay, type AS type, SUM(amountCents) AS totalCents
         FROM transactions
-        WHERE dateEpochDay BETWEEN :from AND :to
+        WHERE ledgerId = :ledgerId
+          AND dateEpochDay BETWEEN :from AND :to
           AND type IN (0, 1)
         GROUP BY dateEpochDay, type
         ORDER BY dateEpochDay
         """
     )
-    fun observeDayTotals(from: Long, to: Long): Flow<List<DayTotal>>
+    fun observeDayTotals(ledgerId: Long, from: Long, to: Long): Flow<List<DayTotal>>
 
     @Query(
         """
@@ -188,16 +252,25 @@ interface TransactionDao {
                COUNT(*) AS txCount
         FROM transactions t
         LEFT JOIN categories c ON c.id = t.categoryId
-        WHERE t.type = :type AND t.dateEpochDay BETWEEN :from AND :to
+        WHERE t.ledgerId = :ledgerId
+          AND t.type = :type
+          AND t.dateEpochDay BETWEEN :from AND :to
         GROUP BY t.categoryId, c.name, c.icon, c.colorHex
         ORDER BY totalCents DESC
         """
     )
-    fun observeCategoryStats(type: Int, from: Long, to: Long): Flow<List<CategoryStatRow>>
+    fun observeCategoryStats(ledgerId: Long, type: Int, from: Long, to: Long): Flow<List<CategoryStatRow>>
+
+    @Query("SELECT COUNT(*) FROM transactions WHERE ledgerId = :ledgerId")
+    fun observeCountIn(ledgerId: Long): Flow<Int>
 
     @Query("SELECT COUNT(*) FROM transactions")
-    fun observeCount(): Flow<Int>
+    fun observeTotalCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM transactions WHERE ledgerId = :ledgerId")
+    suspend fun countIn(ledgerId: Long): Int
+
+    /** 分类是否被任何账本使用过 —— 判定删除资格时必须跨账本统计。 */
     @Query("SELECT COUNT(*) FROM transactions WHERE categoryId = :categoryId")
     suspend fun countByCategory(categoryId: Long): Int
 
@@ -216,6 +289,7 @@ interface TransactionDao {
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun deleteById(id: Long)
 
-    @Query("DELETE FROM transactions")
-    suspend fun clearAll()
+    /** 只清空指定账本。跨账本「清空全部」不再对外暴露。 */
+    @Query("DELETE FROM transactions WHERE ledgerId = :ledgerId")
+    suspend fun clearIn(ledgerId: Long)
 }

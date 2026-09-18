@@ -67,6 +67,12 @@ android {
     lint {
         abortOnError = false
         warningsAsErrors = false
+        // 不分析测试源码：本项目的单测用的是 Robolectric + Room 的真实 SQLite，
+        // 而 AGP 8.6 + Kotlin 2.0 的 lint 在解析这些测试类的父类型时会内部崩溃
+        // （报错原文是 "Unexpected failure during lint analysis ... this is a bug in lint"），
+        // 于是把 lint 自己的崩溃当成 LintError 报出来，五个测试类各报一条。
+        // 这不是代码缺陷 —— 单测本身由 testDebugUnitTest 负责把关，lint 在这里没有增量价值。
+        checkTestSources = false
     }
 
     testOptions {
@@ -75,6 +81,12 @@ android {
             isReturnDefaultValues = true
         }
     }
+}
+
+// Room 导出版本化 schema。迁移脚本必须与 Room 期望的表结构逐字一致，
+// 导出的 JSON 就是这份「期望」的权威来源，也是以后写迁移时的对照物。
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

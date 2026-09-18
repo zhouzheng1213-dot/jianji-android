@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,6 +63,9 @@ import com.jianji.app.ui.component.NumberPad
 import com.jianji.app.ui.component.SegmentedTabs
 import com.jianji.app.ui.component.Shape
 import com.jianji.app.ui.component.amountStyle
+import com.jianji.app.ui.glass.glassBackRebound
+import com.jianji.app.ui.glass.glassPressBounce
+import com.jianji.app.ui.glass.glassSelectionPop
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 
@@ -82,6 +86,7 @@ fun EntryScreen(
     fallbackAccountId: Long,
     lastExpenseCategoryId: Long,
     lastIncomeCategoryId: Long,
+    ledgerName: String,
     onSave: (TransactionEntity, Boolean) -> Unit,
     onDelete: (Long) -> Unit,
     onClose: () -> Unit,
@@ -156,11 +161,13 @@ fun EntryScreen(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val closePress = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .size(40.dp)
+                    .glassBackRebound(closePress)
                     .clip(Shape.pill)
-                    .clickable(onClick = onClose),
+                    .clickable(interactionSource = closePress, indication = null, onClick = onClose),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -178,11 +185,17 @@ fun EntryScreen(
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(4.dp))
+            val deletePress = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .size(40.dp)
+                    .glassPressBounce(deletePress, pressedScale = 0.86f)
                     .clip(Shape.pill)
-                    .clickable(enabled = isEditing) { showDeleteConfirm = true },
+                    .clickable(
+                        interactionSource = deletePress,
+                        indication = null,
+                        enabled = isEditing
+                    ) { showDeleteConfirm = true },
                 contentAlignment = Alignment.Center
             ) {
                 if (isEditing) {
@@ -195,6 +208,14 @@ fun EntryScreen(
                 }
             }
         }
+
+        // 记进哪一本，是有了独立账本之后最容易搞错的一件事，所以明写在页头。
+        Text(
+            text = if (isEditing) "编辑「$ledgerName」里的流水" else "记入「$ledgerName」",
+            modifier = Modifier.padding(start = 22.dp, end = 22.dp, bottom = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.inkFaint
+        )
 
         // ---------- 金额区 ----------
         Column(
@@ -530,7 +551,8 @@ private fun CategoryGrid(
                             iconKey = category.icon,
                             colorHex = category.colorHex,
                             size = 42.dp,
-                            iconSize = 21.dp
+                            iconSize = 21.dp,
+                            modifier = Modifier.glassSelectionPop(selected = selected)
                         )
                         Spacer(Modifier.height(5.dp))
                         Text(
@@ -658,6 +680,7 @@ private fun AccountPickerDialog(
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 accounts.forEachIndexed { index, account ->
                     val disabled = account.id == excludeId
+                    val isPicked = account.id == selectedId
                     if (index > 0) Hairline()
                     Row(
                         modifier = Modifier
@@ -670,7 +693,8 @@ private fun AccountPickerDialog(
                             iconKey = account.icon,
                             colorHex = null,
                             size = 32.dp,
-                            iconSize = 16.dp
+                            iconSize = 16.dp,
+                            modifier = Modifier.glassSelectionPop(selected = isPicked, amplitude = 0.26f)
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
@@ -679,7 +703,7 @@ private fun AccountPickerDialog(
                             color = if (disabled) colors.inkFaint else Palette.Ink
                         )
                         Spacer(Modifier.weight(1f))
-                        if (account.id == selectedId) {
+                        if (isPicked) {
                             Text(
                                 text = "已选",
                                 style = MaterialTheme.typography.labelMedium,

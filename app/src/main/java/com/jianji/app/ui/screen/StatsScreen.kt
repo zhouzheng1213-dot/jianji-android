@@ -39,6 +39,7 @@ import com.jianji.app.ui.component.ThinProgress
 import com.jianji.app.ui.component.TrendBars
 import com.jianji.app.ui.component.amountStyle
 import com.jianji.app.ui.component.parseColor
+import com.jianji.app.ui.glass.LocalGlassContentInset
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 import com.jianji.app.vm.StatsUiState
@@ -196,7 +197,8 @@ fun StatsScreen(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        // 内容滚到玻璃底栏下面，底部余量由这里给。
+        Spacer(Modifier.height(LocalGlassContentInset.current + 24.dp))
     }
 }
 

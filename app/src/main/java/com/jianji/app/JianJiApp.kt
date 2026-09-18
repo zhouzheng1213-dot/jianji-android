@@ -17,6 +17,7 @@ class JianJiApp : Application() {
 
     val repository: LedgerRepository by lazy {
         LedgerRepository(
+            ledgerDao = database.ledgerDao(),
             categoryDao = database.categoryDao(),
             accountDao = database.accountDao(),
             txDao = database.transactionDao()
