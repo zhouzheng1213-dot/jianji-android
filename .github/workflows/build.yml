@@ -97,19 +97,27 @@ jobs:
 
       # lint 会拦住 NewApi 这类「运行期才炸」的问题 —— 本项目 minSdk 26，
       # 而液态玻璃用到的 RuntimeShader 是 API 33 的类，光靠肉眼看守卫很容易漏。
-      # 只对 error 级别设卡（abortOnError 在 app/build.gradle.kts 里为 false，
-      # 这里显式再断言一次报告里没有 error，免得不小心把那行配置改掉）。
+      #
+      # 判据读 XML 报告里的 severity="Error"，不读 HTML 里那句 "Lint Report: N error"
+      # —— 前者是结构化字段，后者是给人看的显示字符串，措辞一变就失效。
+      # 先断言报告文件存在：lint 自己崩了（分析失败）时不会产出报告，
+      # 那时候 grep 找不到 Error 反而会「通过」，必须显式挡掉。
       - name: Lint
         run: |
           set -euo pipefail
           $GRADLE_CMD :app:lintDebug --no-daemon --stacktrace
-          REPORT=app/build/reports/lint-results-debug.html
-          if grep -qE "Lint Report: [0-9]+ error" "$REPORT"; then
+          REPORT=app/build/reports/lint-results-debug.xml
+          if [ ! -f "$REPORT" ]; then
+            echo "::error::lint 没有产出报告 $REPORT（分析可能中途失败了）"
+            exit 1
+          fi
+          if grep -q 'severity="Error"' "$REPORT"; then
             echo "::error::lint 报告里存在 error 级别问题"
-            grep -oE "Lint Report: [0-9]+ error[s]? and [0-9]+ warning[s]?" "$REPORT" || true
+            grep -B2 'severity="Error"' "$REPORT" | head -40 || true
             exit 1
           fi
           echo "OK: lint 无 error"
+          grep -o 'severity="[A-Za-z]*"' "$REPORT" | sort | uniq -c || true
 
       - name: Build debug APK
         run: $GRADLE_CMD :app:assembleDebug --no-daemon --stacktrace
