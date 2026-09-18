@@ -8,6 +8,9 @@
 用法：
     python3 scripts/push_to_github.py <owner> <repo> [branch]
 
+仓库必须已经存在（本脚本只能写内容，不能建仓库）。空仓库也能用：会先落一个
+初始提交，之后的批量推送才有 base 可以挂。
+
 环境要求：CODEBUDDY_MCP_CONFIG 中包含 github 这个 MCP server（由 WorkBuddy 注入）。
 """
 import json
@@ -89,14 +92,61 @@ class Client:
         })
         self.call("notifications/initialized", {}, notify=True)
 
-    def push(self, owner, repo, branch, files, message):
-        return self.call("tools/call", {
-            "name": "push_files",
-            "arguments": {
-                "owner": owner, "repo": repo, "branch": branch,
-                "files": files, "message": message,
-            },
+    def tool(self, name, arguments):
+        return self.call("tools/call", {"name": name, "arguments": arguments})
+
+    def ensure_initial_commit(self, owner, repo, branch):
+        """空仓库（一次提交都没有）时，push_files 拿不到 base commit，挂不上去。
+
+        这里先探一次分支：没有分支就用 Contents 接口落一个初始提交，
+        让后面的批量推送有个可以挂的 base。
+        """
+        res = self.tool("list_branches", {"owner": owner, "repo": repo})
+        if tool_failed(res):
+            print("  [预检] 列分支失败，跳过空仓库处理：" + tool_text(res)[:200])
+            return
+        try:
+            names = [b.get("name") for b in json.loads(tool_text(res)) if b.get("name")]
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            names = None
+        if names:
+            print(f"  [预检] 仓库已有分支：{', '.join(names)}")
+            return
+
+        print(f"  [预检] 仓库还没有任何提交，先在 {branch} 上落一个初始提交")
+        boot = self.tool("create_or_update_file", {
+            "owner": owner, "repo": repo, "branch": branch,
+            "path": "README.md",
+            "content": "# 简记\n\n初始提交。随后的推送会覆盖本文件。\n",
+            "message": "初始化仓库",
         })
+        if tool_failed(boot):
+            print("  [预检] 初始提交失败：" + tool_text(boot)[:300])
+            print("  提示：在 GitHub 上建仓库时勾选 “Add a README file”，或先手工建一个初始提交。")
+        else:
+            print("  [预检] 初始提交完成")
+
+    def push(self, owner, repo, branch, files, message):
+        return self.tool("push_files", {
+            "owner": owner, "repo": repo, "branch": branch,
+            "files": files, "message": message,
+        })
+
+
+def tool_text(res):
+    """把 tools/call 结果里那段 text 抠出来。"""
+    try:
+        for item in res.get("result", {}).get("content", []):
+            if item.get("type") == "text":
+                return item.get("text", "")
+    except AttributeError:
+        pass
+    return json.dumps(res, ensure_ascii=False)
+
+
+def tool_failed(res):
+    text = json.dumps(res, ensure_ascii=False)
+    return '"isError": true' in text or '"http_error"' in text
 
 
 def collect(root):
@@ -129,15 +179,15 @@ def main():
 
     client = Client()
     client.init()
+    client.ensure_initial_commit(owner, repo, branch)
 
     for i in range(0, len(files), BATCH_SIZE):
         batch = files[i:i + BATCH_SIZE]
         n = i // BATCH_SIZE + 1
         message = f"简记 1.0.0：源码与 CI（第 {n} 批）" if n > 1 else "简记 1.0.0：纯本地离线记账 App（Kotlin + Compose + Room）"
         res = client.push(owner, repo, branch, batch, message)
-        text = json.dumps(res, ensure_ascii=False)
-        if "isError" in text and '"isError": true' in text:
-            print(f"  第 {n} 批失败：{text[:500]}")
+        if tool_failed(res):
+            print(f"  第 {n} 批失败：{tool_text(res)[:500]}")
             sys.exit(1)
         print(f"  第 {n} 批完成（{len(batch)} 个文件）")
 
