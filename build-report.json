@@ -1,0 +1,13 @@
+{
+  "app": "简记",
+  "versionName": "1.0.0",
+  "runNumber": "2",
+  "runId": "35303916838",
+  "commit": "4c2260a24b2bcc30fd20e506ecd5bd86f9d02c18",
+  "builtAt": "2026-09-18T03:44:19Z",
+  "builtOn": "GitHub Actions / ubuntu-24.04",
+  "releaseTag": "build-2",
+  "debug": { "file": "JianJi-1.0.0-debug.apk", "sha256": "f946dad312e6cdd1a5d3832bcb53aa26b68c022a7ea67ebfe5dafa5b089852cc", "bytes": 16472651 },
+  "release": { "file": "JianJi-1.0.0-release.apk", "sha256": "978f9a0271ee47b30c7ae2c035c7ce9b842029c4681b5104345440766d920f68", "bytes": 10606466 },
+  "networkPermissions": []
+}
