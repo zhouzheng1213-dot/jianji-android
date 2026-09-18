@@ -1,0 +1,89 @@
+name: Build APK
+
+# 源码推上来即自动编译；也可以在 Actions 页面手动触发。
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# 发布 Release 需要写权限
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Grant gradlew execute permission
+        run: chmod +x ./gradlew
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Build release APK
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Collect APKs and compute SHA-256
+        id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk    out/JianJi-1.0.0-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk out/JianJi-1.0.0-release.apk
+          cd out
+          sha256sum *.apk | tee SHA256SUMS.txt
+          {
+            echo "checksums<<EOF"
+            cat SHA256SUMS.txt
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Verify no network permission in the APK
+        run: |
+          set -euo pipefail
+          AAPT=$(ls "${ANDROID_HOME}"/build-tools/*/aapt2 | head -1)
+          echo "using $AAPT"
+          PERMS=$("$AAPT" dump permissions out/JianJi-1.0.0-release.apk || true)
+          echo "$PERMS"
+          if echo "$PERMS" | grep -qE "android.permission.(INTERNET|ACCESS_NETWORK_STATE|READ_MEDIA_IMAGES|READ_EXTERNAL_STORAGE)"; then
+            echo "::error::APK 里出现了不应存在的权限"
+            exit 1
+          fi
+          echo "权限检查通过：APK 未申请任何网络或存储读取权限"
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: JianJi-APK-${{ github.run_number }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NOTES=$(printf '简记 1.0.0 自动构建\n\n由 GitHub Actions 于 %s 编译产出。\n\n### 校验值\n```\n%s\n```\n' \
+            "$(date -u '+%Y-%m-%d %H:%M UTC')" "${{ steps.collect.outputs.checksums }}")
+          gh release create "build-${{ github.run_number }}" \
+            out/JianJi-1.0.0-debug.apk \
+            out/JianJi-1.0.0-release.apk \
+            out/SHA256SUMS.txt \
+            --title "简记 1.0.0 · build ${{ github.run_number }}" \
+            --notes "$NOTES"
