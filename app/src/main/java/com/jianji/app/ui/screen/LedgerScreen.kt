@@ -52,6 +52,7 @@ import com.jianji.app.ui.component.parseColor
 import com.jianji.app.ui.glass.GlassStyle
 import com.jianji.app.ui.glass.GlassSurface
 import com.jianji.app.ui.glass.LocalGlassContentInset
+import com.jianji.app.ui.glass.glassRecord
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 import com.jianji.app.vm.DayGroup
@@ -73,39 +74,22 @@ fun LedgerScreen(
     val listState = rememberLazyListState()
 
     // 内容要一直滚到玻璃底栏下面，所以底部余量靠 contentPadding 给，
-    // 而不是把列表视口缩短。LocalGlassContentInset 里含系统导航栏高度。
+    // 而不是把列表视口缩短。LocalGlassContentInset 里含系统导航栏高度与底栏悬浮高度。
     val bottomInset = LocalGlassContentInset.current + 76.dp
+    // 页头悬浮在列表上方：账本胶囊 + 搜索 + 月份选择器加起来约 100dp。
+    val topInset = 104.dp
+
+    // 录制层挂在**滚动列表**上 —— 页头玻璃控件采样它，
+    // 而它们自己在录制区之外，不会采到自己。
 
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = bottomInset)
+            modifier = Modifier
+                .fillMaxSize()
+                .glassRecord(),
+            contentPadding = PaddingValues(top = topInset, bottom = bottomInset)
         ) {
-            item(key = "ledger") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 18.dp, end = 14.dp, top = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    LedgerSwitcher(ledger = state.ledger, onClick = onOpenLedgers)
-                    Spacer(Modifier.weight(1f))
-                    SearchButton(onClick = onOpenSearch)
-                }
-            }
-
-            item(key = "header") {
-                MonthSelector(
-                    label = Dates.formatMonth(state.month),
-                    isCurrentMonth = state.isCurrentMonth,
-                    onPrev = onPrevMonth,
-                    onNext = onNextMonth,
-                    onBackToCurrent = onBackToCurrentMonth,
-                    modifier = Modifier.padding(start = 18.dp, end = 14.dp, top = 6.dp, bottom = 12.dp)
-                )
-            }
-
             item(key = "summary") {
                 SummaryCard(state)
                 Spacer(Modifier.height(10.dp))
@@ -122,7 +106,7 @@ fun LedgerScreen(
                 item(key = "empty") {
                     EmptyHint(
                         title = "这个月还没有记录",
-                        subtitle = "点右下角「记一笔」开始"
+                        subtitle = "点底栏中间的 + 开始"
                     )
                 }
             }
@@ -137,46 +121,79 @@ fun LedgerScreen(
                 }
             }
         }
+
+        // ---------- 悬浮页头（真玻璃，采样下方的滚动列表） ----------
+        //
+        // 这些控件**不在**录制区里（LazyColumn 才是录制层），所以它们的玻璃
+        // 采到的永远是「身后的列表」，不会采到自己 —— 没有重影，只有折射。
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 18.dp, end = 14.dp, top = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LedgerSwitcher(ledger = state.ledger, onClick = onOpenLedgers)
+                Spacer(Modifier.weight(1f))
+                SearchButton(onClick = onOpenSearch)
+            }
+            MonthSelector(
+                label = Dates.formatMonth(state.month),
+                isCurrentMonth = state.isCurrentMonth,
+                onPrev = onPrevMonth,
+                onNext = onNextMonth,
+                onBackToCurrent = onBackToCurrentMonth,
+                modifier = Modifier.padding(start = 18.dp, end = 14.dp, top = 6.dp)
+            )
+        }
     }
 }
 
 /**
  * 账本切换入口。整颗胶囊用账本色着色，一眼就能看出「现在记的是哪一本」——
  * 这是独立账本最容易出错的地方：记完才发现记进了错的本子。
+ *
+ * 真玻璃（Thick）：身后是滚动的列表，账本名从玻璃底下折射过去。
  */
 @Composable
 private fun LedgerSwitcher(ledger: LedgerEntity?, onClick: () -> Unit) {
     val accent = parseColor(ledger?.colorHex, Palette.Ink)
-    Row(
-        modifier = Modifier
-            .clip(Shape.pill)
-            .background(accent.copy(alpha = 0.10f))
-            .border(BorderStroke(1.dp, accent.copy(alpha = 0.30f)), Shape.pill)
-            .clickable(onClick = onClick)
-            .padding(start = 9.dp, end = 7.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+    GlassSurface(
+        modifier = Modifier.height(38.dp),
+        style = GlassStyle.Thick,
+        shape = Shape.pill,
+        onClick = onClick
     ) {
-        Icon(
-            imageVector = AppIcons.of(ledger?.icon),
-            contentDescription = null,
-            tint = accent,
-            modifier = Modifier.size(15.dp)
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            text = ledger?.name ?: LedgerEntity.DEFAULT_NAME,
-            style = MaterialTheme.typography.labelLarge,
-            color = Palette.Ink,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 140.dp)
-        )
-        Icon(
-            imageVector = Icons.Filled.ExpandMore,
-            contentDescription = "切换账本",
-            tint = Palette.InkSoft,
-            modifier = Modifier.size(17.dp)
-        )
+        Row(
+            modifier = Modifier.padding(start = 11.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Icon(
+                imageVector = AppIcons.of(ledger?.icon),
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(15.dp)
+            )
+            Text(
+                text = ledger?.name ?: LedgerEntity.DEFAULT_NAME,
+                style = MaterialTheme.typography.labelLarge,
+                color = Palette.Ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 140.dp)
+            )
+            Icon(
+                imageVector = Icons.Filled.ExpandMore,
+                contentDescription = "切换账本",
+                tint = Palette.InkSoft,
+                modifier = Modifier.size(17.dp)
+            )
+        }
     }
 }
 
@@ -255,7 +272,7 @@ private fun BudgetCard(state: LedgerUiState) {
 private fun SearchButton(onClick: () -> Unit) {
     GlassSurface(
         modifier = Modifier.size(38.dp),
-        style = GlassStyle.Thin,
+        style = GlassStyle.Thick,
         shape = Shape.pill,
         onClick = onClick
     ) {

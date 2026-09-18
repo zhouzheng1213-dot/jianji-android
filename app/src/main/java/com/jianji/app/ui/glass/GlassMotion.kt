@@ -44,11 +44,12 @@ object GlassMotion {
     val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 
     /**
-     * 整页浮层进场。带一点点过冲，但幅度收得很小 ——
-     * 这是打在 `graphicsLayer` 缩放上的，过冲太大会让页面超出屏幕再弹回来，很晃眼。
+     * 整页浮层进场。弹簧带一点过冲（damping 0.8）——
+     * 页面从记一笔按钮长出来时先冲过头一点再稳住，这是「液态」的来源之一。
+     * 过冲打在 `graphicsLayer` 缩放上，幅度可控，不会晃眼。
      */
     fun <T> sheetIn(): FiniteAnimationSpec<T> =
-        spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
+        spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)
 
     /** 整页浮层退场：干脆，不弹 —— 关闭要利落，回弹会显得犹豫。 */
     fun <T> sheetOut(): FiniteAnimationSpec<T> =

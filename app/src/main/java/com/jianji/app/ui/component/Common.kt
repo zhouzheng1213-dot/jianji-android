@@ -274,6 +274,8 @@ fun parseColor(hex: String?, fallback: Color = Palette.InkFaint): Color {
 
 /**
  * 月份选择器：明细页与统计页共用，保证两处的翻月交互完全一致。
+ *
+ * 玻璃胶囊（Thick）：它悬浮在滚动内容上方，翻月箭头有按压缩放回弹。
  */
 @Composable
 fun MonthSelector(
@@ -293,21 +295,23 @@ fun MonthSelector(
         if (leading != null) {
             leading()
         }
-        Row(
-            modifier = Modifier
-                .clip(Shape.pill)
-                .border(BorderStroke(1.dp, LocalLedgerColors.current.line), Shape.pill)
-                .padding(horizontal = 3.dp, vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically
+        GlassSurface(
+            style = GlassStyle.Thick,
+            shape = Shape.pill
         ) {
-            ChevronStep(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "上个月", onPrev)
-            Text(
-                text = label,
-                modifier = Modifier.padding(horizontal = 6.dp),
-                style = MaterialTheme.typography.titleMedium,
-                color = Palette.Ink
-            )
-            ChevronStep(Icons.AutoMirrored.Filled.KeyboardArrowRight, "下个月", onNext)
+            Row(
+                modifier = Modifier.padding(horizontal = 3.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ChevronStep(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "上个月", onPrev)
+                Text(
+                    text = label,
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Palette.Ink
+                )
+                ChevronStep(Icons.AutoMirrored.Filled.KeyboardArrowRight, "下个月", onNext)
+            }
         }
 
         if (!isCurrentMonth) {

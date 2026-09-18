@@ -54,6 +54,7 @@ import com.jianji.app.ui.component.PillChip
 import com.jianji.app.ui.component.Shape
 import com.jianji.app.ui.component.amountStyle
 import com.jianji.app.ui.glass.LocalGlassContentInset
+import com.jianji.app.ui.glass.glassRecord
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 
@@ -85,6 +86,8 @@ fun AccountsScreen(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            // 录制进背板：玻璃底栏折射这一页的内容。
+            .glassRecord()
             .verticalScroll(rememberScrollState())
     ) {
         Text(

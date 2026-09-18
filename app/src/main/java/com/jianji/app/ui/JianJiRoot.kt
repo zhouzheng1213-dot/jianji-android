@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -20,10 +21,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
@@ -45,6 +46,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -52,7 +55,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jianji.app.data.TxRow
-import com.jianji.app.ui.component.Shape as JianJiShape
 import com.jianji.app.ui.glass.GlassBottomBarHeight
 import com.jianji.app.ui.glass.GlassMotion
 import com.jianji.app.ui.glass.GlassOrigin
@@ -60,6 +62,7 @@ import com.jianji.app.ui.glass.GlassStyle
 import com.jianji.app.ui.glass.GlassSurface
 import com.jianji.app.ui.glass.LocalGlassBackdrop
 import com.jianji.app.ui.glass.LocalGlassContentInset
+import com.jianji.app.ui.glass.glassEdge
 import com.jianji.app.ui.glass.glassIconBounce
 import com.jianji.app.ui.glass.glassIconRotation
 import com.jianji.app.ui.glass.glassOriginSource
@@ -75,7 +78,6 @@ import com.jianji.app.ui.screen.StatsScreen
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 import com.jianji.app.vm.LedgerViewModel
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 /** 覆盖在 Tab 之上的整屏页面。 */
@@ -137,7 +139,9 @@ fun JianJiRoot(factory: LedgerViewModel.Factory) {
     }
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val contentInset = GlassBottomBarHeight + navBarBottom
+    // 底栏现在是「悬浮」的：左右各留 16dp、离系统导航栏 12dp，
+    // 所以列表的滚动余量 = 栏高 + 悬浮高度 + 系统导航栏。
+    val contentInset = GlassBottomBarHeight + navBarBottom + 28.dp
 
     fun open(next: Overlay) {
         // 先钉住「从哪儿来」，再切状态 —— 顺序反了就采不到坐标了。
@@ -186,13 +190,16 @@ fun JianJiRoot(factory: LedgerViewModel.Factory) {
             LocalGlassContentInset provides contentInset
         ) {
             // ---------- 背板层：主界面（唯一被录进背板的东西） ----------
+            // ---------- 主界面 ----------
+            // 录制层（layerBackdrop）不再挂在这里 —— 它下沉到了每个 Tab 的
+            // 滚动内容上（见各 Screen）。页头的玻璃控件必须浮在录制区之外，
+            // 否则会采到自己的像素出重影。
             AnimatedContent(
                 targetState = tab,
                 transitionSpec = { glassTabTransform() },
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
-                    .layerBackdrop(backdrop),
+                    .statusBarsPadding(),
                 label = "tabs"
             ) { current ->
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -248,20 +255,21 @@ fun JianJiRoot(factory: LedgerViewModel.Factory) {
             }
 
             // ---------- 玻璃悬浮件（在背板之外，才能采到别人） ----------
+            //
+            // 底栏这次是**悬浮**的：四边都不贴边，玻璃边缘四周都有内容可以折射；
+            // 「记一笔」挪进底栏正中间，红色圆形，这是记账类 App 的经典布局。
             GlassBottomBar(
                 current = tab,
                 onSelect = { tab = it },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                onAddEntry = { open(Overlay.Entry(null)) },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        bottom = navBarBottom + 12.dp
+                    )
             )
-
-            if (tab == 0 && target == null) {
-                AddEntryFab(
-                    onClick = { open(Overlay.Entry(null)) },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 18.dp, bottom = contentInset + 14.dp)
-                )
-            }
 
             // ---------- 整页浮层：graphicsLayer 缩放，不碰布局 ----------
             if (shown != null) {
@@ -270,13 +278,15 @@ fun JianJiRoot(factory: LedgerViewModel.Factory) {
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            // 支点 = 打开时冻结的那一点。进场放大、退场缩回同一个点。
-                            val scale = 0.78f + 0.22f * progress
+                            // 支点 = 打开时冻结的那一点（记一笔按钮被点到的位置）。
+                            // 起步缩得多（0.55）、弹簧带一点过冲 —— 页面像从按钮里
+                            // 「长」出来，而不是平移淡入。alpha 抬得快，
+                            // 不透明底色让页面从一开始就压得住下层内容。
+                            val scale = 0.55f + 0.45f * progress
                             scaleX = scale
                             scaleY = scale
                             transformOrigin = origin.transformOrigin
-                            // 快速淡入，让缩放不至于从头到尾都半透明。
-                            alpha = (progress * 2.2f).coerceIn(0f, 1f)
+                            alpha = (progress * 3f).coerceIn(0f, 1f)
                         }
                 ) {
                     when (val current = shown) {
@@ -343,50 +353,55 @@ fun JianJiRoot(factory: LedgerViewModel.Factory) {
 }
 
 /**
- * 整页浮层统一用同一档玻璃，保证「打开一页」的手感每次一样。
+ * 整页浮层的底。**不透明**——这是手测反馈后的定论：
+ * 表单和数字页要的是可读性，玻璃留给底栏和页头控件；
+ * 页面本身的「活」靠开合动画（从记一笔按钮长出来、缩回去）。
  *
  * `statusBarsPadding()` 放在这里是安全的：外层的 `graphicsLayer` 只改绘制变换，
  * 布局尺寸从头到尾都是全屏，inset 只算一次，不会随动画重排。
  */
 @Composable
 private fun GlassPage(content: @Composable () -> Unit) {
-    GlassSurface(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        style = GlassStyle.Sheet,
-        shape = RoundedCornerShape(0.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .background(Palette.WarmWhite)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) { content() }
+        content()
     }
 }
 
 /**
- * 玻璃底栏。
+ * 玻璃底栏：**悬浮**在滚动内容上方，四周都不贴边。
  *
- * 只圆上两个角、贴住屏幕底边 —— 底栏要和导航栏连成一片，
- * 底部再留个圆角就会露出一条底色缝，玻璃的「整块感」立刻散掉。
- *
- * 这是全 app 玻璃感最强的一块：底下是滚动的列表，字会从玻璃底下穿过去被真实折射。
+ * 四个圆角 + 下方的阴影让它明确地「浮」起来；玻璃边缘四周都有
+ * 滚动内容经过，折射带（lens）在任何一边都能看到字被掰弯。
+ * 「记一笔」占据正中间：红色圆形，按下缩小、松开弹回，加号按下转 45°。
  */
 @Composable
 private fun GlassBottomBar(
     current: Int,
     onSelect: (Int) -> Unit,
+    onAddEntry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LocalLedgerColors.current
     GlassSurface(
         modifier = modifier.fillMaxWidth(),
         style = GlassStyle.Thick,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        shape = RoundedCornerShape(26.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .height(GlassBottomBarHeight),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TABS.forEachIndexed { index, spec ->
+                if (index == 2) {
+                    AddEntryBarSlot(onClick = onAddEntry)
+                }
                 val selected = index == current
                 val interaction = remember(spec.label) { MutableInteractionSource() }
                 Column(
@@ -398,7 +413,7 @@ private fun GlassBottomBar(
                             indication = null,
                             role = Role.Tab
                         ) { onSelect(index) }
-                        .glassIconBounce(selected = selected),
+                        .glassIconBounce(selected = selected, amplitude = 0.3f, lift = 3.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
@@ -406,7 +421,7 @@ private fun GlassBottomBar(
                         imageVector = spec.icon,
                         contentDescription = spec.label,
                         tint = if (selected) Palette.Ink else colors.inkFaint,
-                        modifier = Modifier.size(21.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
@@ -421,42 +436,41 @@ private fun GlassBottomBar(
 }
 
 /**
- * 「记一笔」。这次也做成玻璃 —— 它压在列表上，背后有内容可采。
- * 按下回弹 + 加号自转 45°（加号转成叉 = 「正在记 / 关掉」）。
+ * 底栏正中间的「记一笔」：红色圆形，白加号。
+ *
+ * 红用的是支出红 —— 记账的动词性动作就是「花钱」，语义自洽；
+ * 按下整颗缩小（glassPressBounce），加号同时转 45°（玻璃「开合」的暗号）。
  */
 @Composable
-private fun AddEntryFab(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+private fun RowScope.AddEntryBarSlot(onClick: () -> Unit) {
+    val colors = LocalLedgerColors.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-
-    GlassSurface(
-        modifier = modifier
-            .glassPressBounce(interaction)
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxSize()
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
-        style = GlassStyle.Thick,
-        shape = JianJiShape.pill
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .glassPressBounce(interaction, pressedScale = 0.88f)
+                .clip(CircleShape)
+                .background(colors.expense)
+                .glassEdge(GlassStyle.Thick, CircleShape)
         ) {
             Icon(
                 imageVector = Icons.Filled.Add,
-                contentDescription = null,
-                tint = Palette.Ink,
+                contentDescription = "记一笔",
+                tint = Color.White,
                 modifier = Modifier
-                    .size(19.dp)
+                    .align(Alignment.Center)
+                    .size(24.dp)
                     .glassIconRotation(expanded = pressed, degrees = 45f)
-            )
-            Text(
-                text = "记一笔",
-                style = MaterialTheme.typography.labelLarge,
-                color = Palette.Ink
             )
         }
     }
 }
+

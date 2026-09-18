@@ -3,6 +3,7 @@ package com.kyant.backdrop.effects
 import androidx.annotation.FloatRange
 import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.shape.CornerBasedShape
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.util.fastCoerceAtMost
@@ -20,6 +21,12 @@ fun BackdropEffectScope.lens(
 ) {
     if (!isRuntimeShaderSupported()) return
     if (refractionHeight <= 0f || refractionAmount <= 0f) return
+
+    // 内联改动（修复启动闪退）：effects 会在节点 onAttach 时就执行一次，
+    // 那时还没经过测量，`size` 是 Size.Unspecified，`size.minDimension` 直接抛
+    // IllegalStateException。首次 draw 时 `update(DrawScope)` 填上真实 size
+    // 并重跑 effects，这里跳过即可 —— 不写守卫的话 app 一启动就崩。
+    if (!size.isSpecified) return
 
     if (padding > 0f) {
         padding = (padding - refractionHeight).fastCoerceAtLeast(0f)

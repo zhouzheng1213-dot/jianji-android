@@ -54,45 +54,28 @@ data class GlassStyle(
     companion object {
 
         /**
-         * 厚重玻璃：悬浮在滚动内容之上（底栏、记一笔）。
+         * 厚重玻璃：悬浮在滚动内容之上（底栏、页头控件）。
          *
-         * 底栏底下是会动的列表，模糊与折射都有东西可采，这是全 app 玻璃感最强的地方。
-         * tint 只有 0.34 —— 刻意让列表的字从玻璃底下透过来，那才是「液态」。
+         * 折射参数给得**很足**——这是这一版的核心修正：之前的 16dp/18dp 在暖白内容上
+         * 根本看不出来。lensAmount 30dp 会让玻璃边缘的字体明显弯折，
+         * 这才是 Kyant 演示里那种「一眼液态」。tint 只有 0.20，
+         * 让列表内容尽量透上来；可读性靠 blur 与高光边补。
          */
         val Thick: GlassStyle = GlassStyle(
-            blurRadius = 20.dp,
-            lensHeight = 16.dp,
-            lensAmount = 18.dp,
+            blurRadius = 18.dp,
+            lensHeight = 22.dp,
+            lensAmount = 30.dp,
             chromaticAberration = false,
-            tint = Palette.Surface.copy(alpha = 0.34f),
-            highlightWidth = 0.9.dp,
-            highlightAlpha = 0.85f,
+            tint = Palette.Surface.copy(alpha = 0.20f),
+            highlightWidth = 1.dp,
+            highlightAlpha = 0.9f,
             borderWidth = 0.8.dp,
             borderColor = Palette.Line,
             shadow = Shadow(
-                radius = 26.dp,
-                offset = DpOffset(0.dp, 10.dp),
-                color = Palette.Ink.copy(alpha = 0.10f)
+                radius = 30.dp,
+                offset = DpOffset(0.dp, 12.dp),
+                color = Palette.Ink.copy(alpha = 0.14f)
             )
-        )
-
-        /**
-         * 大块玻璃：整页覆盖层（记一笔 / 搜索 / 账本管理）。
-         *
-         * 页面内容是表单和数字，可读性压力大，所以 tint 比 Thick 略高；
-         * 但仍然只有 0.40 —— 上一版用了 0.86，模糊全被白雾盖死，等于没有玻璃。
-         */
-        val Sheet: GlassStyle = GlassStyle(
-            blurRadius = 28.dp,
-            lensHeight = 24.dp,
-            lensAmount = 12.dp,
-            chromaticAberration = true,
-            tint = Palette.WarmWhite.copy(alpha = 0.40f),
-            highlightWidth = 0.8.dp,
-            highlightAlpha = 0.45f,
-            borderWidth = 0.dp,
-            borderColor = Palette.Line,
-            shadow = null
         )
 
         /**

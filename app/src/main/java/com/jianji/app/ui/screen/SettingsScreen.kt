@@ -53,6 +53,7 @@ import com.jianji.app.ui.component.SegmentedTabs
 import com.jianji.app.ui.component.Shape
 import com.jianji.app.ui.component.parseColor
 import com.jianji.app.ui.glass.LocalGlassContentInset
+import com.jianji.app.ui.glass.glassRecord
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 
@@ -83,6 +84,8 @@ fun SettingsScreen(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            // 录制进背板：玻璃底栏折射这一页的内容。
+            .glassRecord()
             .verticalScroll(rememberScrollState())
     ) {
         Text(

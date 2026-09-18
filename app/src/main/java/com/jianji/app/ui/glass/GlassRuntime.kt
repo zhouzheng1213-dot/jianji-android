@@ -1,9 +1,13 @@
 package com.jianji.app.ui.glass
 
 import android.os.Build
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 
 /**
  * 液态玻璃的渲染能力分级。
@@ -54,8 +58,21 @@ val LocalGlassTier = staticCompositionLocalOf { GlassTier.system }
  *
  * 为 null 表示当前没有可用背板（例如独立预览、或还没接根节点），此时玻璃退化为纯色卡片。
  */
-val LocalGlassBackdrop = staticCompositionLocalOf<Backdrop?> { null }
+val LocalGlassBackdrop = staticCompositionLocalOf<LayerBackdrop?> { null }
 
+/**
+ * 把调用者「录」进玻璃背板。
+ *
+ * 挂在**滚动内容**上：列表滚到玻璃底栏 / 页头控件底下时，
+ * 它们采样这张背板就能看到被折射的内容。
+ * 关键分工——录制归滚动内容，采样归悬浮件；谁也不采自己，就没有重影。
+ * 没有背板时（预览等场景）静默跳过。
+ */
+@Composable
+fun Modifier.glassRecord(): Modifier {
+    val backdrop = LocalGlassBackdrop.current
+    return if (backdrop != null) this.layerBackdrop(backdrop) else this
+}
 /**
  * 玻璃底栏压住的高度（含系统导航栏）。
  *

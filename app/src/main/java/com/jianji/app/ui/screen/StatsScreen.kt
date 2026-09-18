@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -40,6 +41,7 @@ import com.jianji.app.ui.component.TrendBars
 import com.jianji.app.ui.component.amountStyle
 import com.jianji.app.ui.component.parseColor
 import com.jianji.app.ui.glass.LocalGlassContentInset
+import com.jianji.app.ui.glass.glassRecord
 import com.jianji.app.ui.theme.LocalLedgerColors
 import com.jianji.app.ui.theme.Palette
 import com.jianji.app.vm.StatsUiState
@@ -70,26 +72,23 @@ fun StatsScreen(
         state.trend.map { Dates.formatMonthShort(it.month) to (it.expenseCents to it.incomeCents) }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-    ) {
-        MonthSelector(
-            label = Dates.formatMonth(state.month),
-            isCurrentMonth = state.month == YearMonth.now(),
-            onPrev = onPrevMonth,
-            onNext = onNextMonth,
-            onBackToCurrent = onBackToCurrentMonth,
-            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 12.dp)
-        )
+    // 与明细页同构：录制层挂滚动内容，MonthSelector 悬浮其上换真玻璃。
+    Box(modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .glassRecord()
+                .verticalScroll(rememberScrollState())
+        ) {
+            // 顶部留出悬浮月份选择器的高度，内容从它底下滚过去被折射。
+            Spacer(Modifier.height(64.dp))
 
-        SegmentedTabs(
-            items = listOf("支出", "收入"),
-            selectedIndex = if (isExpense) 0 else 1,
-            onSelect = { onModeChange(if (it == 0) TxType.EXPENSE else TxType.INCOME) },
-            modifier = Modifier.padding(horizontal = 18.dp).fillMaxWidth()
-        )
+            SegmentedTabs(
+                items = listOf("支出", "收入"),
+                selectedIndex = if (isExpense) 0 else 1,
+                onSelect = { onModeChange(if (it == 0) TxType.EXPENSE else TxType.INCOME) },
+                modifier = Modifier.padding(horizontal = 18.dp).fillMaxWidth()
+            )
 
         Spacer(Modifier.height(12.dp))
 
@@ -199,6 +198,19 @@ fun StatsScreen(
 
         // 内容滚到玻璃底栏下面，底部余量由这里给。
         Spacer(Modifier.height(LocalGlassContentInset.current + 24.dp))
+        }
+
+        // 悬浮月份选择器（真玻璃，采样下方滚动内容）。
+        MonthSelector(
+            label = Dates.formatMonth(state.month),
+            isCurrentMonth = state.month == YearMonth.now(),
+            onPrev = onPrevMonth,
+            onNext = onNextMonth,
+            onBackToCurrent = onBackToCurrentMonth,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(start = 18.dp, end = 18.dp, top = 10.dp)
+        )
     }
 }
 
